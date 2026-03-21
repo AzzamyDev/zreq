@@ -1,0 +1,359 @@
+import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Settings, Palette, Info, Server, X } from 'lucide-react'
+import { setThemeAccent } from '@/lib/themeAccent'
+import { setAppLocale } from '@/i18n/config'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { useInstanceStore } from '@/store/instanceStore'
+import { applyInstanceSwitch } from '@/lib/apply-instance-switch'
+import { validatePostwomanBackend } from '@/lib/probe-backend'
+
+function useSettings() {
+    const get = (key: string, fallback: any) => {
+        try {
+            return JSON.parse(localStorage.getItem(`postwoman_${key}`) ?? 'null') ?? fallback
+        } catch {
+            return fallback
+        }
+    }
+    const set = (key: string, value: any) =>
+        localStorage.setItem(`postwoman_${key}`, JSON.stringify(value))
+    return { get, set }
+}
+
+const ACCENT_PRESETS = [
+    { name: 'Purple', value: '#bd93f9' },
+    { name: 'Pink', value: '#ff79c6' },
+    { name: 'Cyan', value: '#8be9fd' },
+    { name: 'Green', value: '#50fa7b' },
+    { name: 'Orange', value: '#ffb86c' },
+    { name: 'Yellow', value: '#f1fa8c' },
+]
+
+type Section = 'general' | 'instance' | 'themes' | 'about'
+
+interface SettingsDialogProps {
+    open: boolean
+    onClose: () => void
+}
+
+export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
+    const { t, i18n } = useTranslation()
+    const [section, setSection] = useState<Section>('general')
+    const { get, set } = useSettings()
+    const [timeout, setTimeout_] = useState(() => get('timeout', 30000))
+    const [sslVerify, setSslVerify] = useState(() => get('sslVerify', true))
+    const [maxSize, setMaxSize] = useState(() => get('maxSize', 50))
+    const [autosave, setAutosave] = useState(() => get('autosave', false))
+
+    const instances = useInstanceStore((s) => s.instances)
+    const activeInstanceId = useInstanceStore((s) => s.activeInstanceId)
+    const addInstance = useInstanceStore((s) => s.addInstance)
+    const [qaName, setQaName] = useState('')
+    const [qaUrl, setQaUrl] = useState('')
+    const [qaErr, setQaErr] = useState('')
+    const [qaBusy, setQaBusy] = useState(false)
+
+    if (!open) return null
+
+    const saveGeneral = () => {
+        set('timeout', timeout)
+        set('sslVerify', sslVerify)
+        set('maxSize', maxSize)
+        set('autosave', autosave)
+    }
+
+    const setAccent = (value: string) => setThemeAccent(value)
+
+    const NAV_ITEMS: { id: Section; label: string; icon: ReactNode }[] = [
+        { id: 'general', label: t('settings.navGeneral'), icon: <Settings className="h-4 w-4" /> },
+        { id: 'instance', label: t('settings.navInstance'), icon: <Server className="h-4 w-4" /> },
+        { id: 'themes', label: t('settings.navThemes'), icon: <Palette className="h-4 w-4" /> },
+        { id: 'about', label: t('settings.navAbout'), icon: <Info className="h-4 w-4" /> },
+    ]
+
+    const submitQuickAddInstance = async () => {
+        setQaErr('')
+        setQaBusy(true)
+        const v = await validatePostwomanBackend(qaUrl)
+        if (!v.ok) {
+            setQaErr(
+                t(
+                    v.code === 'invalid_url'
+                        ? 'instance.invalidUrl'
+                        : v.code === 'unreachable'
+                          ? 'instance.backendUnreachable'
+                          : 'instance.backendInvalidResponse'
+                )
+            )
+            setQaBusy(false)
+            return
+        }
+        const r = addInstance(qaName, v.baseUrl)
+        if (!r.ok) {
+            setQaErr(t('instance.invalidUrl'))
+            setQaBusy(false)
+            return
+        }
+        setQaName('')
+        setQaUrl('')
+        applyInstanceSwitch(r.id)
+        setQaBusy(false)
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+            <div className="relative flex h-[80vh] w-[800px] max-w-[95vw] rounded-lg border border-border bg-background shadow-2xl overflow-hidden">
+                {/* Sidebar */}
+                <div className="w-48 shrink-0 border-r border-border bg-muted/20 flex flex-col gap-0.5 p-2 pt-4">
+                    <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {t('settings.title')}
+                    </p>
+                    {NAV_ITEMS.map((item) => (
+                        <button
+                            key={item.id}
+                            onClick={() => setSection(item.id)}
+                            className={`flex items-center gap-2.5 rounded px-3 py-2 text-sm text-left transition-colors ${section === item.id
+                                    ? 'bg-accent/20 text-foreground'
+                                    : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                                }`}
+                        >
+                            {item.icon}
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-8">
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+
+                    {section === 'general' && (
+                        <div className="space-y-8">
+                            <h2 className="text-xl font-semibold">{t('settings.generalTitle')}</h2>
+
+                            <div className="space-y-6">
+                                <div className="flex items-start justify-between border-b border-border pb-6">
+                                    <div>
+                                        <p className="font-medium">{t('settings.language')}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                            {t('settings.languageHint')}
+                                        </p>
+                                    </div>
+                                    <Select
+                                        value={i18n.language.startsWith('id') ? 'id' : 'en'}
+                                        onValueChange={(val) => setAppLocale(val as 'en' | 'id')}
+                                    >
+                                        <SelectTrigger className="w-[160px] rounded border border-border bg-muted/30 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+                                            <SelectValue>
+                                                {i18n.language.startsWith('id')
+                                                    ? t('settings.langIndonesian')
+                                                    : t('settings.langEnglish')}
+                                            </SelectValue>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="en">{t('settings.langEnglish')}</SelectItem>
+                                            <SelectItem value="id">{t('settings.langIndonesian')}</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="flex items-start justify-between border-b border-border pb-6">
+                                    <div>
+                                        <p className="font-medium">{t('settings.requestTimeout')}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                            {t('settings.requestTimeoutHint')}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            value={timeout}
+                                            onChange={(e) => setTimeout_(+e.target.value)}
+                                            onBlur={saveGeneral}
+                                            className="w-24 rounded border border-border bg-muted/30 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ring"
+                                        />
+                                        <span className="text-sm text-muted-foreground">ms</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start justify-between border-b border-border pb-6">
+                                    <div>
+                                        <p className="font-medium">{t('settings.maxResponseSize')}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                            {t('settings.maxResponseSizeHint')}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            value={maxSize}
+                                            onChange={(e) => setMaxSize(+e.target.value)}
+                                            onBlur={saveGeneral}
+                                            className="w-24 rounded border border-border bg-muted/30 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ring"
+                                        />
+                                        <span className="text-sm text-muted-foreground">MB</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start justify-between border-b border-border pb-6">
+                                    <div>
+                                        <p className="font-medium">{t('settings.sslVerify')}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                            {t('settings.sslVerifyHint')}
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const v = !sslVerify
+                                            setSslVerify(v)
+                                            set('sslVerify', v)
+                                        }}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${sslVerify ? 'bg-primary' : 'bg-muted'}`}
+                                    >
+                                        <span
+                                            className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${sslVerify ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <p className="font-medium">{t('settings.autosave')}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                            {t('settings.autosaveHint')}
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const v = !autosave
+                                            setAutosave(v)
+                                            set('autosave', v)
+                                        }}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${autosave ? 'bg-primary' : 'bg-muted'}`}
+                                    >
+                                        <span
+                                            className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${autosave ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {section === 'instance' && (
+                        <div className="space-y-8">
+                            <h2 className="text-xl font-semibold">{t('settings.instanceTitle')}</h2>
+                            <p className="text-sm text-muted-foreground -mt-4">{t('settings.instanceHint')}</p>
+
+                            <div className="space-y-3 rounded-lg border border-border p-4">
+                                <p className="text-sm font-medium">{t('settings.instanceListHeading')}</p>
+                                <ul className="space-y-2 text-sm">
+                                    {instances.map((inst) => (
+                                        <li
+                                            key={inst.id}
+                                            className="flex flex-col gap-0.5 rounded border border-border/60 bg-muted/20 px-3 py-2"
+                                        >
+                                            <span className="font-medium">
+                                                {inst.name}
+                                                {inst.id === activeInstanceId ? (
+                                                    <span className="text-muted-foreground ml-2 text-xs font-normal">
+                                                        ({t('settings.instanceActive')})
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                            <span className="text-muted-foreground truncate text-xs">{inst.baseUrl}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div className="space-y-4 border-t border-border pt-6">
+                                <p className="text-sm font-medium">{t('settings.instanceQuickAdd')}</p>
+                                <div className="grid max-w-md gap-3">
+                                    <div className="grid gap-1">
+                                        <label className="text-muted-foreground text-xs">{t('common.name')}</label>
+                                        <Input
+                                            value={qaName}
+                                            onChange={(e) => setQaName(e.target.value)}
+                                            placeholder={t('instance.namePlaceholder')}
+                                        />
+                                    </div>
+                                    <div className="grid gap-1">
+                                        <label className="text-muted-foreground text-xs">{t('instance.baseUrl')}</label>
+                                        <Input
+                                            value={qaUrl}
+                                            onChange={(e) => setQaUrl(e.target.value)}
+                                            placeholder={t('instance.urlPlaceholder')}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void submitQuickAddInstance()
+                                            }}
+                                        />
+                                    </div>
+                                    {qaErr ? <p className="text-destructive text-xs">{qaErr}</p> : null}
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="w-fit"
+                                        disabled={qaBusy}
+                                        onClick={() => void submitQuickAddInstance()}
+                                    >
+                                        {qaBusy ? t('instance.validating') : t('instance.addAndSwitch')}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {section === 'themes' && (
+                        <div className="space-y-8">
+                            <h2 className="text-xl font-semibold">{t('settings.themesTitle')}</h2>
+                            <div>
+                                <p className="font-medium mb-1">{t('settings.accentColor')}</p>
+                                <p className="text-sm text-muted-foreground mb-4">
+                                    {t('settings.accentColorHint')}
+                                </p>
+                                <div className="flex gap-3 flex-wrap">
+                                    {ACCENT_PRESETS.map((preset) => (
+                                        <button
+                                            key={preset.name}
+                                            onClick={() => setAccent(preset.value)}
+                                            title={preset.name}
+                                            style={{ background: preset.value }}
+                                            className="h-10 w-10 rounded-full border-2 border-border hover:scale-110 transition-transform hover:border-white"
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {section === 'about' && (
+                        <div className="space-y-6">
+                            <h2 className="text-xl font-semibold">{t('settings.aboutTitle')}</h2>
+                            <div className="space-y-4 text-sm">
+                                <div className="flex gap-2">
+                                    <span className="text-muted-foreground w-24">{t('settings.version')}</span>
+                                    <span>0.1.0</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <span className="text-muted-foreground w-24">{t('settings.builtWith')}</span>
+                                    <span>Tauri 2 + React + NestJS</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}

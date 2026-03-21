@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "postwoman",
+  "productName": "ZReq",
   "version": "0.1.0",
-  "identifier": "com.postwoman.app",
+  "identifier": "com.zreq.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Postwoman",
+        "title": "ZReq",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -21,6 +21,13 @@
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["zreq"]
+      }
     }
   },
   "bundle": {
