@@ -1,33 +1,33 @@
 # ZReq
 
-**Klien HTTP berbasis workspace** — kirim request, kelola koleksi, dan sinkronkan data dengan backend ZReq Anda. Desktop app (Tauri) dengan UI React yang fokus pada alur kerja API sehari-hari.
+**Workspace-first HTTP client** — send requests, manage collections, and sync data with your ZReq backend. A Tauri desktop app with a React UI built around day-to-day API workflows.
 
 ---
 
-## Apa ini dipakai untuk?
+## What is it for?
 
-ZReq membantu Anda:
+ZReq helps you:
 
-- **Menyusun dan menjalankan** permintaan HTTP (method, URL, header, body) dengan editor yang nyaman.
-- **Mengorganisir** request di **koleksi** per **workspace**, termasuk lingkungan (environment) untuk variabel.
-- **Menyambung ke instance API** sendiri (bukan hanya satu host tetap): onboarding instance, ganti server dari toolbar.
-- **Sinkron** koleksi & data workspace ke server, dengan replika lokal dan penanganan konflik bila perlu.
-- **Impor** koleksi dari format **Postman** atau **ZReq** (JSON).
+- **Compose and run** HTTP requests (method, URL, headers, body) with a comfortable editor.
+- **Organize** requests in **collections** per **workspace**, including **environments** for variables.
+- **Connect to your own API instance** (not a single fixed host): instance onboarding, switch servers from the toolbar.
+- **Sync** collections and workspace data to the server, with a local replica and conflict handling when needed.
+- **Import** collections from **Postman** or **ZReq** (JSON).
 
-Cocok untuk tim yang sudah punya backend ZReq dan ingin satu aplikasi desktop untuk eksplorasi API yang terhubung ke akun mereka.
+A good fit for teams that already run a ZReq backend and want one desktop app for signed-in API exploration.
 
 ---
 
-## Fitur utama
+## Features
 
-| Area | Ringkasan |
-|------|-----------|
-| **Request** | Builder + panel respons, tab banyak request, panel bisa di-resize. |
-| **Koleksi** | Pohon koleksi/folder, drag & sort, buat & impor koleksi. |
-| **Workspace** | Beberapa workspace, anggota (invite by email), pengaturan terpusat. |
-| **Auth** | Login / daftar, **GitHub OAuth** (deep link `zreq://` di desktop). |
-| **Sync** | Status sync, outbox, dialog konflik saat data lokal vs remote bertabrakan. |
-| **Pengalaman** | Command palette, i18n (mis. EN/ID), tema gelap & aksen warna. |
+| Area | Summary |
+|------|---------|
+| **Requests** | Builder + response panel, multiple request tabs, resizable panels. |
+| **Collections** | Tree of collections/folders, drag & sort, create & import collections. |
+| **Workspaces** | Multiple workspaces, members (invite by email), centralized settings. |
+| **Auth** | Sign in / register, **GitHub OAuth** (desktop deep link `zreq://`). |
+| **Sync** | Sync status, outbox, conflict dialog when local vs remote diverge. |
+| **Experience** | Command palette, i18n (e.g. EN/ID), dark theme and accent colors. |
 
 ---
 
@@ -35,43 +35,43 @@ Cocok untuk tim yang sudah punya backend ZReq dan ingin satu aplikasi desktop un
 
 - **Frontend:** React 19, TypeScript, Vite 8  
 - **Desktop:** [Tauri 2](https://v2.tauri.app/)  
-- **UI:** Tailwind CSS 4, Radix / shadcn-style components, CodeMirror untuk body JSON/dll.  
+- **UI:** Tailwind CSS 4, Radix / shadcn-style components, CodeMirror for JSON bodies and more.  
 - **State:** Zustand, Immer  
 
 ---
 
-## Mulai cepat
+## Quick start
 
-**Prasyarat:** Node.js, `pnpm`, dan [Rust](https://rustup.rs/) (untuk Tauri).
+**Prerequisites:** Node.js, `pnpm`, and [Rust](https://rustup.rs/) (for Tauri).
 
 ```bash
 cd client
 cp .env.example .env
-# Sesuaikan VITE_API_URL ke URL backend ZReq Anda
+# Point VITE_API_URL at your ZReq backend URL
 pnpm install
 pnpm tauri dev
 ```
 
-Build produksi desktop:
+Desktop production build:
 
 ```bash
 pnpm tauri build
 ```
 
-Variabel lingkungan penting ada di `.env.example` (termasuk opsi `VITE_OAUTH_API_BASE` untuk OAuth lewat tunnel seperti ngrok).
+See `.env.example` for important variables (including optional `VITE_OAUTH_API_BASE` for OAuth via a tunnel such as ngrok).
 
 ---
 
-## Rekomendasi IDE
+## Recommended IDE setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 
 ---
 
-## Disclaimer — proyek *vibe coding*
+## Disclaimer — *vibe coding* project
 
-Ini adalah proyek yang banyak berkembang lewat eksperimen, iterasi cepat, dan “feel” pengembangan — **bukan produk komersial yang dijamin stabil, aman, atau lengkap untuk semua skenario produksi**. API, data model, dan perilaku sync bisa berubah sewaktu-waktu. Gunakan dengan sadar risiko; jangan mengandalkan ini sebagai satu-satunya cadangan data kritis tanpa verifikasi sendiri.
+This project grows through experimentation, fast iteration, and a “feel your way” style of development — **not as a commercially guaranteed stable, secure, or complete product for every production scenario**. APIs, data models, and sync behavior may change without notice. Use at your own risk; do not rely on it as your only backup for critical data without your own verification.
 
 ---
 
-*ZReq — satu permukaan untuk request, koleksi, dan workspace yang tersinkron.*
+*ZReq — one surface for requests, collections, and synced workspaces.*
