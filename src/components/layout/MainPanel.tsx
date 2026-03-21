@@ -11,8 +11,12 @@ export default function MainPanel() {
     return (
         <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
             <RequestTabBar />
-            <ResizablePanelGroup orientation="vertical">
-                <ResizablePanel defaultSize={50} minSize={25}>
+            {/*
+              PanelGroup defaults to h-full; with RequestTabBar above, 100% + tab bar height overflows the shell.
+              flex-1 min-h-0 consumes remaining space under the tab bar instead.
+            */}
+            <ResizablePanelGroup orientation="vertical" className="h-auto min-h-0 flex-1">
+                <ResizablePanel defaultSize={50} minSize={25} className="flex min-h-0 flex-col">
                     <RequestBuilder />
                 </ResizablePanel>
                 <ResizableHandle withHandle />

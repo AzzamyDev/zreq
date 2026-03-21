@@ -312,6 +312,8 @@
     "noBody": "This request has no body.",
     "invalidJson": "Invalid JSON — {{message}}",
     "validJson": "Valid JSON",
+    "jsonBodyPlaceholder": "{\n  // optional\n  \"key\": \"value\"\n}",
+    "jsonBodyHint": "// and /* */ comments are stripped when sending. Type {{ in a string to pick variables (environment + collection); complete {{var}} shows as a chip. ⌘/ or Ctrl+/ toggles line comments; ⌘⇧L or Ctrl+Shift+L formats JSON.",
     "rawBodyPlaceholder": "Raw body content...",
     "bodyTypeNone": "None",
     "bodyTypeJson": "JSON",
@@ -390,7 +392,12 @@
     "extract": "Extract",
     "emptySlotTitle": "Type here (before / after variable)",
     "suggestTitle": "Environment & collection variables",
-    "suggestEmpty": "No matching variables"
+    "suggestEmpty": "No matching variables",
+    "jsonBodyMissingVarBody": "“{{name}}” is not defined in the active environment or this collection. Add it under Environments or collection/folder variables.",
+    "enterValue": "Enter value",
+    "addTo": "Add to",
+    "jsonBodySwitchEnvironment": "Switch environment",
+    "jsonBodyVariablesLink": "Variables in request →"
   },
   "requestTab": {
     "unsaved": "Unsaved",

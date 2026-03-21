@@ -65,7 +65,7 @@ export default function RequestBuilder() {
     const noTabs = tabs.length === 0
 
     return (
-        <div className="flex h-full flex-col">
+        <div className="flex h-full min-h-0 flex-col">
             <SaveRequestDialog
                 open={saveDialogOpen}
                 onClose={() => setSaveDialogOpen(false)}

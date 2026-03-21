@@ -108,3 +108,122 @@
 .cm-editor .cm-placeholder {
     white-space: pre-wrap;
 }
+
+/* JSONC comments: mute entire region (override inner Lezer highlight spans). */
+.cm-editor .cm-jsonc-comment,
+.cm-editor .cm-jsonc-comment * {
+    color: var(--muted-foreground) !important;
+    font-style: italic;
+}
+
+/* {{variable}} chips in JSON body — tight inline pill, aligned with string quotes */
+.cm-editor .cm-json-template-badge {
+    display: inline !important;
+    vertical-align: baseline;
+    line-height: inherit;
+    border-radius: 3px;
+    padding: 0 0.2em;
+    margin: 0 0.12em;
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    max-width: max-content;
+    width: auto;
+}
+.cm-editor .cm-json-template-badge,
+.cm-editor .cm-json-template-badge * {
+    color: var(--primary) !important;
+    font-style: normal !important;
+    line-height: inherit !important;
+}
+
+.cm-editor .cm-json-template-badge--missing {
+    background: color-mix(in srgb, var(--destructive) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--destructive) 45%, transparent);
+    padding: 0 0.22em;
+    margin: 0 0.15em;
+}
+.cm-editor .cm-json-template-badge--missing,
+.cm-editor .cm-json-template-badge--missing * {
+    color: var(--destructive) !important;
+}
+
+/*
+ * CodeMirror tooltips use `#postwoman-cm-tooltip-host` (fixed 0×0, pointer-events: none).
+ * Re-enable hits on tooltip UI; host stays out of document flow so the app shell height stays stable.
+ */
+#postwoman-cm-tooltip-host .cm-tooltip {
+    pointer-events: auto;
+}
+
+/*
+ * EditorView.theme only targets nodes under .cm-editor, so hosted tooltips need global rules
+ * or they lose z-index / background and panel chrome (e.g. resizable handles) paints on top.
+ */
+.cm-tooltip {
+    z-index: 20050 !important;
+    isolation: isolate;
+    background-color: var(--popover) !important;
+    background-clip: padding-box;
+    color: var(--popover-foreground) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px;
+    box-shadow:
+        0 10px 38px color-mix(in srgb, #000 50%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* JSON {{var}} hover: host is 0×0 fixed — without min-width CM measures a pillar; keep Postman-like width */
+.cm-tooltip:has(.cm-json-template-var-tooltip-inner) {
+    padding: 0 !important;
+    box-sizing: border-box;
+    min-width: min(20rem, calc(100vw - 2rem)) !important;
+    max-width: min(28rem, calc(100vw - 1.5rem)) !important;
+    width: min(24rem, calc(100vw - 2rem)) !important;
+    overflow: hidden;
+}
+.cm-json-template-var-tooltip-inner {
+    box-sizing: border-box;
+    padding: 0.65rem 0.85rem;
+    min-width: 100%;
+    width: 100%;
+    max-width: 100%;
+}
+.cm-json-template-var-tooltip-inner > p {
+    margin: 0;
+    text-align: start;
+    text-wrap: pretty;
+    word-break: break-word;
+}
+.cm-json-missing-var-value-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 6px 8px;
+    outline: none;
+}
+.cm-json-missing-var-value-input:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+.cm-json-missing-var-value-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* App shell: fill viewport; avoid document-level vertical scroll (panels scroll internally). */
+html,
+body,
+#root {
+    height: 100%;
+}
+body {
+    overflow: hidden;
+}

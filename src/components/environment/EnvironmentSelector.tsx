@@ -48,6 +48,8 @@ export default function EnvironmentSelector() {
         <>
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger
+                    type="button"
+                    data-postwoman-focus="environment-selector"
                     className={cn(
                         'border-input bg-background hover:bg-muted/50 inline-flex h-7 w-48 items-center justify-between gap-1 rounded-lg border px-2.5 text-xs font-normal shadow-xs outline-none transition-colors',
                         'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'

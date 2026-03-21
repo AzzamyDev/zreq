@@ -1,7 +1,8 @@
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { javascriptLanguage } from '@codemirror/lang-javascript'
 import { jsonLanguage } from '@codemirror/lang-json'
-import { EditorView, tooltips } from '@codemirror/view'
+import { RangeSetBuilder, type Extension, type Text } from '@codemirror/state'
+import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate, tooltips } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 
 /**
@@ -20,7 +21,15 @@ export const appCodeMirrorChromeTheme = EditorView.theme(
         '.cm-content': {
             paddingTop: '8px',
             paddingBottom: '12px',
-            caretColor: 'var(--foreground)',
+            caretColor: 'var(--ring)',
+        },
+        '&.cm-focused > .cm-scroller > .cm-cursorLayer .cm-cursor': {
+            borderLeft: '2px solid var(--ring)',
+            marginLeft: '-1px',
+        },
+        '.cm-dropCursor': {
+            borderLeft: '2px solid var(--ring)',
+            marginLeft: '-1px',
         },
         '.cm-gutters': {
             backgroundColor: 'var(--muted)',
@@ -48,12 +57,13 @@ export const appCodeMirrorChromeTheme = EditorView.theme(
         },
         '.cm-lintGutter .cm-gutterElement': { color: 'var(--muted-foreground)' },
         '.cm-tooltip': {
-            zIndex: 400,
+            zIndex: 20050,
             backgroundColor: 'var(--popover)',
             color: 'var(--popover-foreground)',
             border: '1px solid var(--border)',
-            borderRadius: '6px',
-            boxShadow: '0 4px 14px color-mix(in srgb, var(--foreground) 12%, transparent)',
+            borderRadius: '8px',
+            boxShadow:
+                '0 10px 38px color-mix(in srgb, #000 50%, transparent), 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent)',
         },
         '.cm-tooltip.cm-tooltip-lint': {
             maxWidth: 'min(90vw, 28rem)',
@@ -99,6 +109,99 @@ const appJsonHighlight = HighlightStyle.define(
 /** JSON syntax colors (request body, response body, etc.). */
 export const appJsonSyntaxHighlight = syntaxHighlighting(appJsonHighlight)
 
+const jsoncCommentMark = Decoration.mark({ class: 'cm-jsonc-comment' })
+
+/** Ranges for line (// … eol) and block (slash-star …) comments outside JSON strings; matches strip rules when sending. */
+export function findJsoncCommentRanges(doc: Text): { from: number; to: number }[] {
+    const ranges: { from: number; to: number }[] = []
+    const n = doc.length
+    if (n === 0) return ranges
+
+    const s = doc.sliceString(0, n)
+    let inString = false
+    let escape = false
+    let inBlock = false
+    let blockStart = 0
+    let pos = 0
+
+    while (pos < n) {
+        const c = s[pos]!
+        const next = pos + 1 < n ? s[pos + 1]! : ''
+
+        if (inBlock) {
+            if (c === '*' && next === '/') {
+                ranges.push({ from: blockStart, to: pos + 2 })
+                inBlock = false
+                pos += 2
+            } else {
+                pos += 1
+            }
+            continue
+        }
+
+        if (escape) {
+            escape = false
+            pos++
+            continue
+        }
+        if (inString) {
+            if (c === '\\') escape = true
+            else if (c === '"') inString = false
+            pos++
+            continue
+        }
+
+        if (c === '"') {
+            inString = true
+            pos++
+            continue
+        }
+
+        if (c === '/' && next === '/') {
+            const line = doc.lineAt(pos)
+            ranges.push({ from: pos, to: line.to })
+            pos = line.to
+            continue
+        }
+
+        if (c === '/' && next === '*') {
+            inBlock = true
+            blockStart = pos
+            pos += 2
+            continue
+        }
+
+        pos++
+    }
+
+    if (inBlock) ranges.push({ from: blockStart, to: n })
+    return ranges
+}
+
+function buildJsoncCommentDecorationSet(doc: Text): DecorationSet {
+    const builder = new RangeSetBuilder<Decoration>()
+    for (const r of findJsoncCommentRanges(doc)) {
+        if (r.from < r.to) builder.add(r.from, r.to, jsoncCommentMark)
+    }
+    return builder.finish()
+}
+
+const jsoncCommentViewPlugin = ViewPlugin.fromClass(
+    class {
+        decorations: DecorationSet
+        constructor(view: EditorView) {
+            this.decorations = buildJsoncCommentDecorationSet(view.state.doc)
+        }
+        update(u: ViewUpdate) {
+            if (u.docChanged) this.decorations = buildJsoncCommentDecorationSet(u.state.doc)
+        }
+    },
+    { decorations: (v) => v.decorations },
+)
+
+/** Gray italic styling is in `index.css` (!important over syntax tokens). */
+export const jsoncCommentDecorations: Extension[] = [jsoncCommentViewPlugin]
+
 const appJsHighlight = HighlightStyle.define(
     [
         { tag: t.keyword, color: 'var(--dracula-purple)' },
@@ -126,7 +229,39 @@ const appJsHighlight = HighlightStyle.define(
 /** JavaScript syntax (pre/post request scripts). */
 export const appJavaScriptSyntaxHighlight = syntaxHighlighting(appJsHighlight)
 
-/** Mount tooltips on `document.body` so completion/hover are not clipped by `overflow-hidden` parents. */
+const CM_TOOLTIP_HOST_ID = 'postwoman-cm-tooltip-host'
+
+/**
+ * CodeMirror's `tooltips({ parent })` appends a `position: relative` wrapper to `parent`.
+ * Using `document.body` makes that wrapper a **flow** sibling of `#root`, which breaks the
+ * `height: 100%` shell (layout compresses / spurious scroll when hovers open).
+ * A fixed 0×0 host removes the wrapper from normal flow while still allowing unclipped tooltips.
+ */
+function ensureCmTooltipHost(): HTMLElement | undefined {
+    if (typeof document === 'undefined' || !document.body) return undefined
+    let el = document.getElementById(CM_TOOLTIP_HOST_ID) as HTMLElement | null
+    if (!el) {
+        el = document.createElement('div')
+        el.id = CM_TOOLTIP_HOST_ID
+        el.setAttribute('aria-hidden', 'true')
+        Object.assign(el.style, {
+            position: 'fixed',
+            inset: '0',
+            width: '0',
+            height: '0',
+            margin: '0',
+            padding: '0',
+            border: 'none',
+            overflow: 'visible',
+            pointerEvents: 'none',
+            zIndex: '20000',
+        })
+        document.body.appendChild(el)
+    }
+    return el
+}
+
+/** Mount tooltips outside overflow-hidden panels without affecting `#root` height. */
 export const appCodeMirrorBodyTooltips = tooltips({
-    parent: typeof document !== 'undefined' ? document.body : undefined,
+    parent: ensureCmTooltipHost(),
 })

@@ -147,7 +147,7 @@ function AppShell() {
     }, [])
 
     return (
-        <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
             <TopBar />
             <ConflictDialog />
             <div className="flex min-h-0 flex-1 overflow-hidden">

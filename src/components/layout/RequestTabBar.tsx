@@ -230,7 +230,7 @@ export default function RequestTabBar() {
                 onAfterSave={handleAfterNewSave}
             />
 
-            <div className="flex items-center overflow-x-auto border-b border-border bg-background scrollbar-none">
+            <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-background scrollbar-none">
                 {tabs.map((tab) => (
                     <ContextMenu key={tab.id}>
                         <ContextMenuTrigger>

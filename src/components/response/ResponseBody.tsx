@@ -7,7 +7,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import { Braces, ChevronDown, Code2, FileCode2, FileText, Hash, SquareCode } from 'lucide-react'
-import { appCodeMirrorChromeTheme, appJsonSyntaxHighlight } from '../../lib/app-codemirror-theme'
+import { appCodeMirrorChromeTheme, appJsonSyntaxHighlight, jsoncCommentDecorations } from '../../lib/app-codemirror-theme'
 import { Button } from '../ui/button'
 import {
     DropdownMenu,
@@ -127,6 +127,7 @@ export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
             indentUnit.of('\t'),
             json(),
             appJsonSyntaxHighlight,
+            ...jsoncCommentDecorations,
             EditorView.lineWrapping,
             indentationMarkers({
                 highlightActiveBlock: false,

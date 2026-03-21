@@ -312,6 +312,8 @@
     "noBody": "Permintaan ini tidak punya body.",
     "invalidJson": "JSON tidak valid — {{message}}",
     "validJson": "JSON valid",
+    "jsonBodyPlaceholder": "{\n  // opsional\n  \"key\": \"value\"\n}",
+    "jsonBodyHint": "Komentar // dan /* */ dihapus saat mengirim. Ketik {{ di dalam string untuk saran variabel (environment + koleksi); {{var}} yang lengkap tampil sebagai chip. ⌘/ atau Ctrl+/ toggle komentar; ⌘⇧L atau Ctrl+Shift+L rapikan JSON.",
     "rawBodyPlaceholder": "Isi body mentah...",
     "bodyTypeNone": "Tidak ada",
     "bodyTypeJson": "JSON",
@@ -390,7 +392,12 @@
     "extract": "Ekstrak",
     "emptySlotTitle": "Ketik di sini (sebelum / sesudah variabel)",
     "suggestTitle": "Variabel environment & koleksi",
-    "suggestEmpty": "Tidak ada variabel yang cocok"
+    "suggestEmpty": "Tidak ada variabel yang cocok",
+    "jsonBodyMissingVarBody": "“{{name}}” tidak ada di environment aktif atau koleksi ini. Tambahkan di Environments atau variabel koleksi/folder.",
+    "enterValue": "Masukkan nilai",
+    "addTo": "Tambahkan ke",
+    "jsonBodySwitchEnvironment": "Ganti environment",
+    "jsonBodyVariablesLink": "Variabel di permintaan →"
   },
   "requestTab": {
     "unsaved": "Belum disimpan",

@@ -1,3 +1,4 @@
+import { stripJsonComments } from './strip-json-comments'
 import { useAppStore } from '../store'
 import type { ActiveRequest, AuthConfig, EnvVariable, Folder } from '../types'
 
@@ -143,6 +144,18 @@ export function listTemplateVariableSuggestions(scope?: VariableSuggestionScope)
         .map((key) => ({ key, source: getVariableSource(key, scope) }))
 }
 
+/** Invalidates JSON `{{var}}` badges when active env / collection / folder or defined keys change. */
+export function templateVariablesFingerprint(scope?: VariableSuggestionScope): string {
+    const s = useAppStore.getState()
+    const colId = scope?.collectionId !== undefined ? scope.collectionId : s.activeRequest.collectionId
+    const foldId = scope?.folderId !== undefined ? (scope.folderId ?? undefined) : s.activeRequest.folderId
+    const keys = listTemplateVariableSuggestions(scope)
+        .map((v) => v.key)
+        .sort()
+        .join('|')
+    return `${s.activeEnvironmentId ?? 'noenv'}|${colId ?? 'nocol'}|${foldId ?? 'nofold'}|${keys}`
+}
+
 function resolveInheritedAuth(collectionId: number, folderId: string | undefined): AuthConfig {
     const { collections } = useAppStore.getState()
     const collection = collections.find((c) => c.id === collectionId)
@@ -196,7 +209,8 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
     const bodyType = req.body?.type || 'none'
 
     if (bodyType === 'json' && req.body?.content) {
-        body = resolveEnvVars(req.body.content, vars)
+        const withoutComments = stripJsonComments(req.body.content)
+        body = resolveEnvVars(withoutComments, vars)
         if (!headers['Content-Type']) headers['Content-Type'] = 'application/json'
     } else if (bodyType === 'raw' && req.body?.content) {
         body = resolveEnvVars(req.body.content, vars)

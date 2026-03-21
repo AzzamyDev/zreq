@@ -37,7 +37,7 @@ export default function RequestTabs() {
         <Tabs
             value={activeTab}
             onValueChange={(val) => setActiveTab(String(val))}
-            className="flex h-full flex-col"
+            className="flex h-full min-h-0 flex-col"
         >
             <div className='border-b border-border w-full'>
                 <TabsList variant="line" className="w-fit justify-start rounded-none px-3">
@@ -62,7 +62,7 @@ export default function RequestTabs() {
                 </TabsList>
             </div>
 
-            <TabsContent value="params" className="flex-1 overflow-auto p-3">
+            <TabsContent value="params" className="min-h-0 flex-1 overflow-auto p-3">
                 <KVEditor
                     pairs={activeRequest.params}
                     onChange={(pairs: KV[]) => setActiveRequest({ params: pairs })}
@@ -71,7 +71,7 @@ export default function RequestTabs() {
                 />
             </TabsContent>
 
-            <TabsContent value="headers" className="flex-1 overflow-auto p-3">
+            <TabsContent value="headers" className="min-h-0 flex-1 overflow-auto p-3">
                 <KVEditor
                     pairs={activeRequest.headers}
                     onChange={(pairs: KV[]) => setActiveRequest({ headers: pairs })}
@@ -80,21 +80,21 @@ export default function RequestTabs() {
                 />
             </TabsContent>
 
-            <TabsContent value="body" className="flex-1 overflow-auto" keepMounted>
+            <TabsContent value="body" className="min-h-0 flex-1 overflow-auto" keepMounted>
                 <BodyEditor
                     body={activeRequest.body}
                     onChange={(body: RequestBody) => setActiveRequest({ body })}
                 />
             </TabsContent>
 
-            <TabsContent value="auth" className="flex-1 overflow-auto">
+            <TabsContent value="auth" className="min-h-0 flex-1 overflow-auto">
                 <AuthEditor
                     auth={activeRequest.auth}
                     onChange={(auth: AuthConfig) => setActiveRequest({ auth })}
                 />
             </TabsContent>
 
-            <TabsContent value="pre-request" className="flex-1 overflow-auto" keepMounted>
+            <TabsContent value="pre-request" className="min-h-0 flex-1 overflow-auto" keepMounted>
                 <ScriptEditor
                     docVariant="pre"
                     value={activeRequest.scripts?.preRequest ?? ''}
@@ -103,7 +103,7 @@ export default function RequestTabs() {
                 />
             </TabsContent>
 
-            <TabsContent value="post-response" className="flex-1 overflow-auto" keepMounted>
+            <TabsContent value="post-response" className="min-h-0 flex-1 overflow-auto" keepMounted>
                 <ScriptEditor
                     docVariant="post"
                     value={activeRequest.scripts?.postResponse ?? ''}
