@@ -15,6 +15,29 @@ import type { ConflictEntry, OutboxOp } from './types'
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const SYNC_DEBOUNCE_MS = 450
 
+/** Avoid footer "syncing" flash on fast pulls. */
+const PULLING_INDICATOR_DELAY_MS = 220
+let pullingIndicatorTimer: ReturnType<typeof setTimeout> | null = null
+
+function armPullingIndicator() {
+    if (pullingIndicatorTimer != null) clearTimeout(pullingIndicatorTimer)
+    pullingIndicatorTimer = setTimeout(() => {
+        pullingIndicatorTimer = null
+        useSyncStore.getState().setSyncState({ pulling: true })
+    }, PULLING_INDICATOR_DELAY_MS)
+}
+
+function disarmPullingIndicator() {
+    if (pullingIndicatorTimer != null) {
+        clearTimeout(pullingIndicatorTimer)
+        pullingIndicatorTimer = null
+    }
+    useSyncStore.getState().setSyncState({ pulling: false })
+}
+
+/** Serialize pull+push so overlapping triggers do not apply UI state twice in a row. */
+let pullPushChain: Promise<void> = Promise.resolve()
+
 /** True when pull/push to the zreq instance must not run (browser offline). */
 export function isRemoteSyncBlocked(): boolean {
     return typeof navigator !== 'undefined' && !navigator.onLine
@@ -86,17 +109,38 @@ function mergeWorkspaces(remote: Workspace[], mem: NonNullable<ReturnType<typeof
     })
 }
 
+/** Rows still on the server but queued for DELETE locally — must not be re-applied on pull before push runs. */
+async function pendingCollectionDeletesForWorkspace(replicaKey: string, workspaceId: number): Promise<Set<number>> {
+    const ops = await listPending(replicaKey)
+    const s = new Set<number>()
+    for (const o of ops) {
+        if (o.type === 'collection_delete' && o.workspaceId === workspaceId) s.add(o.collectionId)
+    }
+    return s
+}
+
+async function pendingEnvironmentDeletes(replicaKey: string): Promise<Set<number>> {
+    const ops = await listPending(replicaKey)
+    const s = new Set<number>()
+    for (const o of ops) {
+        if (o.type === 'environment_delete') s.add(o.environmentId)
+    }
+    return s
+}
+
 export async function pullRemoteFull(): Promise<boolean> {
     const key = getReplicaKeyOrNull()
     if (!key || !useAuthStore.getState().token) return false
     if (isRemoteSyncBlocked()) {
         if (key) {
             const pending = await listPending(key)
-            useSyncStore.getState().setSyncState({ pendingOutbox: pending.length, pulling: false })
+            disarmPullingIndicator()
+            useSyncStore.getState().setSyncState({ pendingOutbox: pending.length })
         }
         return false
     }
-    useSyncStore.getState().setSyncState({ pulling: true, lastError: null })
+    useSyncStore.getState().setSyncState({ lastError: null })
+    armPullingIndicator()
     try {
         await ensureReplicaLoaded()
         const mem = snap.getMemorySnapshot()
@@ -117,7 +161,6 @@ export async function pullRemoteFull(): Promise<boolean> {
 
         const workspaces = mergeWorkspaces(remoteWs, m)
         snap.setWorkspacesLocal(workspaces)
-        app.setWorkspaces(workspaces)
 
         let savedWid: number | null = null
         try {
@@ -129,37 +172,33 @@ export async function pullRemoteFull(): Promise<boolean> {
         const wid = remoteWs.some((w) => w.id === savedWid) ? savedWid! : remoteWs[0].id
 
         snap.setActiveWorkspaceIdLocal(wid)
-        app.setActiveWorkspaceId(wid)
 
         const colRes = await apiClient.get<{ data: Collection[] }>('/collections', { params: { workspaceId: wid } })
         const remoteCols = colRes.data?.data ?? []
+        const pendingColDeletes = await pendingCollectionDeletesForWorkspace(key, wid)
 
         for (const r of remoteCols) {
+            if (pendingColDeletes.has(r.id)) continue
             const meta = m.metaCollection[r.id]
             if (meta?.dirty) {
                 const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
                 const localList = m.collectionsByWorkspaceId[String(wid)] ?? []
                 const localCol = localList.find((c) => c.id === r.id)
                 if (r.updatedAt !== base) {
-                    addConflict({
-                        kind: 'collection',
-                        entityId: r.id,
-                        workspaceId: wid,
-                        local: localCol ?? null,
-                        server: r,
-                    })
+                    if (collectionContentMatchesServer(localCol, r)) {
+                        snap.applyServerCollection(wid, r, { overwriteLocal: true })
+                    } else {
+                        addConflict({
+                            kind: 'collection',
+                            entityId: r.id,
+                            workspaceId: wid,
+                            local: localCol ?? null,
+                            server: r,
+                        })
+                    }
                     continue
                 }
-                if (!collectionContentMatchesServer(localCol, r)) {
-                    addConflict({
-                        kind: 'collection',
-                        entityId: r.id,
-                        workspaceId: wid,
-                        local: localCol ?? null,
-                        server: r,
-                    })
-                    continue
-                }
+                // Server revision unchanged: diff is only unpushed local edits — not a merge conflict.
                 continue
             }
             snap.applyServerCollection(wid, r, { overwriteLocal: true })
@@ -167,32 +206,29 @@ export async function pullRemoteFull(): Promise<boolean> {
 
         const envRes = await apiClient.get<{ data: Environment[] }>('/environments')
         const remoteEnv = envRes.data?.data ?? []
+        const pendingEnvDeletes = await pendingEnvironmentDeletes(key)
         const nextEnvs: Environment[] = []
 
         for (const r of remoteEnv) {
+            if (pendingEnvDeletes.has(r.id)) continue
             const meta = m.metaEnv[r.id]
             if (meta?.dirty) {
                 const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
                 const local =
                     app.environments.find((e) => e.id === r.id) ?? m.environments.find((e) => e.id === r.id)
                 if (r.updatedAt !== base) {
-                    addConflict({
-                        kind: 'environment',
-                        entityId: r.id,
-                        local: local ?? null,
-                        server: r,
-                    })
-                    nextEnvs.push(local ?? r)
-                    continue
-                }
-                if (!environmentContentMatchesServer(local, r)) {
-                    addConflict({
-                        kind: 'environment',
-                        entityId: r.id,
-                        local: local ?? null,
-                        server: r,
-                    })
-                    nextEnvs.push(local ?? r)
+                    if (environmentContentMatchesServer(local, r)) {
+                        nextEnvs.push(r)
+                        m.metaEnv[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
+                    } else {
+                        addConflict({
+                            kind: 'environment',
+                            entityId: r.id,
+                            local: local ?? null,
+                            server: r,
+                        })
+                        nextEnvs.push(local ?? r)
+                    }
                     continue
                 }
                 nextEnvs.push(local ?? r)
@@ -208,6 +244,7 @@ export async function pullRemoteFull(): Promise<boolean> {
             }
         }
         for (const c of remoteCols) {
+            if (pendingColDeletes.has(c.id)) continue
             if (!m.metaCollection[c.id]?.dirty) {
                 m.metaCollection[c.id] = { serverUpdatedAt: c.updatedAt, dirty: false }
             }
@@ -219,21 +256,25 @@ export async function pullRemoteFull(): Promise<boolean> {
         m.lastSyncedAt = Date.now()
         snap.replaceMemorySnapshot(m)
 
-        app.setEnvironments(nextEnvs)
-        app.setCollections(snap.getWorkspaceSlice(wid))
+        app.applyRemotePullBundle({
+            workspaces,
+            activeWorkspaceId: wid,
+            collections: snap.getWorkspaceSlice(wid),
+            environments: nextEnvs,
+        })
         await snap.persistSnapshotNow()
 
         const pending = await listPending(key)
+        disarmPullingIndicator()
         useSyncStore.getState().setSyncState({
-            pulling: false,
             lastSyncedAt: m.lastSyncedAt,
             lastError: null,
             pendingOutbox: pending.length,
         })
         return true
     } catch (e) {
+        disarmPullingIndicator()
         useSyncStore.getState().setSyncState({
-            pulling: false,
             lastError: e instanceof Error ? e.message : 'Sync failed',
         })
         return false
@@ -328,11 +369,21 @@ export async function pushOutbox(): Promise<void> {
     useSyncStore.getState().setSyncState({ pendingOutbox: rest.length, pushing: false })
 }
 
-/** Pull server state first, then flush outbox so push does not race ahead of pull and miss conflict detection. */
-export async function pullThenPush(): Promise<void> {
+async function runPullThenPushOnce(): Promise<void> {
     if (isRemoteSyncBlocked()) return
     await pullRemoteFull()
     await pushOutbox()
+}
+
+/** Pull server state first, then flush outbox so push does not race ahead of pull and miss conflict detection. */
+export function pullThenPush(): Promise<void> {
+    const p = pullPushChain.then(() =>
+        runPullThenPushOnce().catch(() => {
+            /* errors already recorded on sync store */
+        })
+    )
+    pullPushChain = p.catch(() => {})
+    return p
 }
 
 async function handleStale409(op: OutboxOp, serverEntity: unknown) {

@@ -17,7 +17,6 @@ import {
     ensureReplicaLoaded,
     hydrateFromDiskIfNeeded,
     isRemoteSyncBlocked,
-    pullRemoteFull,
     pullThenPush,
 } from '@/lib/local-replica/sync-engine'
 import AppFooter from '@/components/layout/AppFooter'
@@ -123,7 +122,7 @@ function AppShell() {
         }
         void ensureReplicaLoaded().then(() => {
             useAppStore.getState().setCollections(snap.getWorkspaceSlice(activeWorkspaceId))
-            if (!isRemoteSyncBlocked()) void pullRemoteFull()
+            if (!isRemoteSyncBlocked()) void pullThenPush()
         })
     }, [activeWorkspaceId])
 

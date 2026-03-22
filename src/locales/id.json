@@ -81,7 +81,7 @@
     "passwordPlaceholder": "••••••••",
     "namePlaceholder": "Nama Anda",
     "passwordMinPlaceholder": "Min. 6 karakter",
-    "changeBackendLink": "Salah server API? Ubah koneksi",
+    "changeBackendLink": "Ganti Server",
     "orDivider": "atau",
     "continueWithGithub": "Lanjutkan dengan GitHub"
   },

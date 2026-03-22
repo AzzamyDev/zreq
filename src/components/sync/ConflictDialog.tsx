@@ -20,6 +20,7 @@ import {
     type UnifiedLine,
     unifiedLineDiff,
 } from '@/lib/conflict-diff'
+import { formatRequestError } from '@/lib/sync-error'
 import { cn } from '@/lib/utils'
 
 const UNIFIED_MAX_RENDER = 280
@@ -337,7 +338,7 @@ export default function ConflictDialog() {
         try {
             await resolveConflictKeepServer(c)
         } catch (e) {
-            setErr(e instanceof Error ? e.message : String(e))
+            setErr(formatRequestError(e))
         } finally {
             setBusy(false)
         }
@@ -349,7 +350,7 @@ export default function ConflictDialog() {
         try {
             await resolveConflictKeepLocal(c)
         } catch (e) {
-            setErr(e instanceof Error ? e.message : String(e))
+            setErr(formatRequestError(e))
         } finally {
             setBusy(false)
         }

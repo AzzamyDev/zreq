@@ -81,7 +81,7 @@
     "passwordPlaceholder": "••••••••",
     "namePlaceholder": "Your name",
     "passwordMinPlaceholder": "Min. 6 characters",
-    "changeBackendLink": "Wrong API server? Change connection",
+    "changeBackendLink": "Change Server Instance",
     "orDivider": "or",
     "continueWithGithub": "Continue with GitHub"
   },

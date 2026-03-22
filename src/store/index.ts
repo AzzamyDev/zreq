@@ -159,6 +159,14 @@ interface AppState {
     toggleSidebarFolderExpanded: (collectionId: number, folderId: string) => void
     setAllSidebarFoldersExpanded: (collectionId: number, items: (Folder | RequestItem)[], expanded: boolean) => void
 
+    /** Apply full pull result in one immer tick (avoids workspace/collections UI mismatch). */
+    applyRemotePullBundle: (p: {
+        workspaces: Workspace[]
+        activeWorkspaceId: number
+        collections: Collection[]
+        environments: Environment[]
+    }) => void
+
     /** Clear server-backed state when switching backend instance */
     resetRemoteSessionState: () => void
 }
@@ -440,6 +448,31 @@ export const useAppStore = create<AppState>()(
             }),
         loadRequestItem: (item, breadcrumbPath?, ctx?) =>
             set((s) => {
+                const colId = ctx?.collectionId
+                const folderKey = ctx?.folderId ?? undefined
+                if (colId != null && item.id) {
+                    const dup = s.tabs.find(
+                        (t) =>
+                            t.request.itemId === item.id &&
+                            t.request.collectionId === colId &&
+                            (t.request.folderId ?? undefined) === folderKey
+                    )
+                    if (dup) {
+                        const cur = s.tabs.find((t) => t.id === s.activeTabId)
+                        if (cur) {
+                            cur.request = { ...s.activeRequest }
+                            cur.response = cloneHttpResponse(s.response)
+                        }
+                        s.activeTabId = dup.id
+                        s.activeRequest = { ...dup.request }
+                        s.response = cloneHttpResponse(dup.response)
+                        s.isLoading = false
+                        s.selectedItemId = item.id
+                        if (breadcrumbPath) s.breadcrumb = breadcrumbPath
+                        return
+                    }
+                }
+
                 const req: ActiveRequest = {
                     method: item.method || 'GET',
                     url: item.url || '',
@@ -600,6 +633,19 @@ export const useAppStore = create<AppState>()(
                     s.sidebarExpanded[key] = expanded
                 })
                 persistSidebarExpanded(s.sidebarExpanded)
+            }),
+
+        applyRemotePullBundle: (p) =>
+            set((s) => {
+                s.workspaces = p.workspaces
+                s.activeWorkspaceId = p.activeWorkspaceId
+                s.collections = p.collections
+                s.environments = p.environments
+                try {
+                    localStorage.setItem('postwoman_workspace_id', String(p.activeWorkspaceId))
+                } catch {
+                    /* ignore */
+                }
             }),
 
         resetRemoteSessionState: () =>

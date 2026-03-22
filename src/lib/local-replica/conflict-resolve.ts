@@ -9,7 +9,6 @@ import { pullThenPush } from './sync-engine'
 
 export async function resolveConflictKeepServer(c: ConflictEntry) {
     if (c.outboxOpId) await removeOp(c.outboxOpId)
-    useSyncStore.getState().removeConflict(c.id)
 
     if (c.kind === 'collection' && c.workspaceId != null) {
         const srv = c.server as Collection
@@ -37,17 +36,17 @@ export async function resolveConflictKeepServer(c: ConflictEntry) {
     }
 
     await snap.persistSnapshotNow()
+    useSyncStore.getState().removeConflict(c.id)
     await pullThenPush()
 }
 
 export async function resolveConflictKeepLocal(c: ConflictEntry) {
-    if (c.outboxOpId) await removeOp(c.outboxOpId)
-    useSyncStore.getState().removeConflict(c.id)
-
     if (c.kind === 'collection' && c.workspaceId != null) {
         const local = c.local as Collection | null
         if (!local) {
             await pullThenPush()
+            if (c.outboxOpId) await removeOp(c.outboxOpId)
+            useSyncStore.getState().removeConflict(c.id)
             return
         }
         const body: Record<string, unknown> = { force: true }
@@ -64,6 +63,8 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
         const local = c.local as Workspace | null
         if (!local) {
             await pullThenPush()
+            if (c.outboxOpId) await removeOp(c.outboxOpId)
+            useSyncStore.getState().removeConflict(c.id)
             return
         }
         const res = await apiClient.patch<{ data: Workspace }>(`/workspaces/${c.entityId}`, {
@@ -82,6 +83,8 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
         const local = c.local as Environment | null
         if (!local) {
             await pullThenPush()
+            if (c.outboxOpId) await removeOp(c.outboxOpId)
+            useSyncStore.getState().removeConflict(c.id)
             return
         }
         const res = await apiClient.patch<{ data: Environment }>(`/environments/${c.entityId}`, {
@@ -98,5 +101,7 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
     }
 
     await snap.persistSnapshotNow()
+    if (c.outboxOpId) await removeOp(c.outboxOpId)
+    useSyncStore.getState().removeConflict(c.id)
     await pullThenPush()
 }
