@@ -1,9 +1,35 @@
 import axios from 'axios'
 import { toast } from 'sonner'
+import i18n from '@/i18n/config'
 import { useAuthStore } from '@/store/authStore'
 import { useInstanceStore } from '@/store/instanceStore'
 
 type AuthUser = { id: number; name: string; email: string; hasPassword?: boolean }
+
+const BRIDGE_USED_KEY = 'postwoman_oauth_bridge_codes'
+
+function readUsedBridgeCodes(): Set<string> {
+    try {
+        const raw = localStorage.getItem(BRIDGE_USED_KEY)
+        const arr = raw ? JSON.parse(raw) : []
+        return new Set(Array.isArray(arr) ? arr.map(String) : [])
+    } catch {
+        return new Set()
+    }
+}
+
+function rememberBridgeCodeConsumed(code: string) {
+    try {
+        const next = [...readUsedBridgeCodes(), code].slice(-100)
+        localStorage.setItem(BRIDGE_USED_KEY, JSON.stringify(next))
+    } catch {
+        /* ignore */
+    }
+}
+
+function wasBridgeCodeConsumed(code: string): boolean {
+    return readUsedBridgeCodes().has(code)
+}
 
 /** One HTTP exchange per bridge code — React Strict Mode runs effects twice; bridge is single-use on server. */
 const bridgeInflight = new Map<string, Promise<void>>()
@@ -11,6 +37,14 @@ const bridgeInflight = new Map<string, Promise<void>>()
 async function exchangeOAuthBridge(code: string, apiBase: string): Promise<void> {
     const base = apiBase.replace(/\/$/, '')
     const key = `${base}\u0000${code}`
+
+    /** Tauri `getCurrent()` can replay the same zreq:// URL on every launch; bridge codes are single-use. */
+    if (wasBridgeCodeConsumed(code)) {
+        if (useAuthStore.getState().token) return
+        toast.error(i18n.t('auth.oauthLinkReused'))
+        return
+    }
+
     const existing = bridgeInflight.get(key)
     if (existing) return existing
 
@@ -24,6 +58,7 @@ async function exchangeOAuthBridge(code: string, apiBase: string): Promise<void>
                 headers: { 'ngrok-skip-browser-warning': '69420' },
             })
             if (data?.data?.access_token && data?.data?.user) {
+                rememberBridgeCodeConsumed(code)
                 useAuthStore.getState().setAuth(data.data.access_token, data.data.user)
                 return
             }

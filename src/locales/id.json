@@ -83,7 +83,8 @@
     "passwordMinPlaceholder": "Min. 6 karakter",
     "changeBackendLink": "Ganti Server",
     "orDivider": "atau",
-    "continueWithGithub": "Lanjutkan dengan GitHub"
+    "continueWithGithub": "Lanjutkan dengan GitHub",
+    "oauthLinkReused": "Tautan masuk ini sudah dipakai. Mulai lagi dari layar login dengan GitHub."
   },
   "onboarding": {
     "pill": "Pengaturan awal",

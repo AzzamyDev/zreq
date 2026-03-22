@@ -83,7 +83,8 @@
     "passwordMinPlaceholder": "Min. 6 characters",
     "changeBackendLink": "Change Server Instance",
     "orDivider": "or",
-    "continueWithGithub": "Continue with GitHub"
+    "continueWithGithub": "Continue with GitHub",
+    "oauthLinkReused": "This sign-in link was already used. Use GitHub sign-in again from the login screen."
   },
   "onboarding": {
     "pill": "First setup",

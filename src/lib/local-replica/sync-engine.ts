@@ -1,6 +1,8 @@
+import { isAxiosError } from 'axios'
 import { toast } from 'sonner'
 import i18n from '@/i18n/config'
 import { apiClient } from '@/lib/api-client'
+import { formatRequestError } from '@/lib/sync-error'
 import { useAuthStore } from '@/store/authStore'
 import { useInstanceStore } from '@/store/instanceStore'
 import { useAppStore } from '@/store'
@@ -80,6 +82,10 @@ function addConflict(c: Omit<ConflictEntry, 'id'> & { id?: string }) {
     if (!hadConflicts) {
         toast.warning(i18n.t('sync.conflictToast'), { duration: 12_000 })
     }
+}
+
+function isNotFound(e: unknown): boolean {
+    return isAxiosError(e) && e.response?.status === 404
 }
 
 /** True when local snapshot already matches remote payload (same server revision can still hide unpushed edits without this). */
@@ -275,7 +281,7 @@ export async function pullRemoteFull(): Promise<boolean> {
     } catch (e) {
         disarmPullingIndicator()
         useSyncStore.getState().setSyncState({
-            lastError: e instanceof Error ? e.message : 'Sync failed',
+            lastError: formatRequestError(e),
         })
         return false
     }
@@ -359,7 +365,7 @@ export async function pushOutbox(): Promise<void> {
                 await handleStale409(op, stale)
             } else {
                 useSyncStore.getState().setSyncState({
-                    lastError: e instanceof Error ? e.message : 'Push failed',
+                    lastError: formatRequestError(e),
                 })
                 break
             }
@@ -463,7 +469,11 @@ async function processOneOp(op: OutboxOp) {
             await snap.persistSnapshotNow()
             return
         }
-        await apiClient.delete(`/collections/${op.collectionId}`)
+        try {
+            await apiClient.delete(`/collections/${op.collectionId}`)
+        } catch (e) {
+            if (!isNotFound(e)) throw e
+        }
         snap.removeCollectionLocal(op.workspaceId, op.collectionId)
         if (useAppStore.getState().activeWorkspaceId === op.workspaceId) {
             useAppStore.getState().removeCollection(op.collectionId)
@@ -511,7 +521,11 @@ async function processOneOp(op: OutboxOp) {
             await snap.persistSnapshotNow()
             return
         }
-        await apiClient.delete(`/workspaces/${op.workspaceId}`)
+        try {
+            await apiClient.delete(`/workspaces/${op.workspaceId}`)
+        } catch (e) {
+            if (!isNotFound(e)) throw e
+        }
         useAppStore.getState().removeWorkspace(op.workspaceId)
         const mem = snap.getMemorySnapshot()
         if (mem) {
@@ -561,7 +575,11 @@ async function processOneOp(op: OutboxOp) {
             await snap.persistSnapshotNow()
             return
         }
-        await apiClient.delete(`/environments/${op.environmentId}`)
+        try {
+            await apiClient.delete(`/environments/${op.environmentId}`)
+        } catch (e) {
+            if (!isNotFound(e)) throw e
+        }
         useAppStore.getState().removeEnvironment(op.environmentId)
         const mem = snap.getMemorySnapshot()
         if (mem) {
