@@ -16,6 +16,7 @@ import InstanceSwitcher from '@/components/instance/InstanceSwitcher'
 import WorkspaceSwitcher from '@/components/layout/WorkspaceSwitcher'
 import ProfileDialog from '@/components/auth/ProfileDialog'
 import SettingsDialog from '../settings/SettingsDialog'
+import AppLogo from '@/components/AppLogo'
 
 export default function TopBar() {
     const { t } = useTranslation()
@@ -26,7 +27,8 @@ export default function TopBar() {
 
     return (
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+                <AppLogo className="h-7 w-7" />
                 <span className="shrink-0 text-sm font-semibold tracking-wide">{t('auth.appTitle')}</span>
                 <InstanceSwitcher />
                 <WorkspaceSwitcher />

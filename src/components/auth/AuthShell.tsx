@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Globe2, Layers, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import AppLogo from '@/components/AppLogo'
 
 type AuthShellProps = {
     title: string
@@ -42,6 +43,7 @@ export default function AuthShell({ title, description, pill, children, classNam
             <div className="relative z-10 mx-auto grid min-h-full w-full min-w-0 max-w-6xl lg:grid-cols-[1fr_minmax(0,440px)]">
                 <aside className="relative hidden flex-col justify-between gap-12 p-10 xl:p-14 lg:flex">
                     <div>
+                        <AppLogo className="mb-6 h-12 w-12" />
                         <p className="text-primary mb-3 text-xs font-semibold tracking-[0.2em] uppercase">
                             {t('auth.shellEyebrow')}
                         </p>
@@ -66,8 +68,8 @@ export default function AuthShell({ title, description, pill, children, classNam
 
                 <div className="flex min-w-0 flex-col justify-center px-5 py-10 sm:px-8 sm:py-14 lg:px-10">
                     <div className="mb-8 flex items-center gap-3 lg:hidden">
-                        <div className="bg-primary/20 text-primary flex size-11 items-center justify-center rounded-2xl font-bold tracking-tight">
-                            P
+                        <div className="bg-primary/10 ring-primary/15 flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl ring-1">
+                            <AppLogo className="size-9" />
                         </div>
                         <div>
                             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
