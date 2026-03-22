@@ -3,7 +3,7 @@ import { useAuthStore } from '@/store/authStore'
 import type { Collection, Environment, Workspace } from '@/types'
 import * as snap from './snapshot-store'
 import { enqueueOp } from './outbox-ops'
-import { getReplicaKeyOrNull, ensureReplicaLoaded, schedulePushOutbox } from './sync-engine'
+import { getReplicaKeyOrNull, ensureReplicaLoaded, scheduleSync } from './sync-engine'
 import { useSyncStore } from '@/store/syncStore'
 
 function expectedCollection(id: number): string | undefined {
@@ -78,7 +78,7 @@ export async function writeCollectionPatch(collectionId: number, body: Record<st
         expectedUpdatedAt: exp,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 /** Optimistic collection (new or import) with optional tree `items`. */
@@ -119,7 +119,7 @@ export async function writeCollectionCreate(tempId: number, payload: { name: str
         body: payload,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeCollectionDelete(collectionId: number, workspaceId: number) {
@@ -133,7 +133,7 @@ export async function writeCollectionDelete(collectionId: number, workspaceId: n
         workspaceId,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeWorkspacePatch(workspaceId: number, body: { name: string }) {
@@ -156,7 +156,7 @@ export async function writeWorkspacePatch(workspaceId: number, body: { name: str
         expectedUpdatedAt: exp,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeWorkspaceCreate(tempId: number, body: { name: string }) {
@@ -170,7 +170,7 @@ export async function writeWorkspaceCreate(tempId: number, body: { name: string 
         body,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeWorkspaceDelete(workspaceId: number) {
@@ -183,7 +183,7 @@ export async function writeWorkspaceDelete(workspaceId: number) {
         workspaceId,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeEnvironmentPatch(environmentId: number, body: Record<string, unknown>) {
@@ -209,7 +209,7 @@ export async function writeEnvironmentPatch(environmentId: number, body: Record<
         expectedUpdatedAt: exp,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeEnvironmentCreate(
@@ -226,7 +226,7 @@ export async function writeEnvironmentCreate(
         body,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }
 
 export async function writeEnvironmentDelete(environmentId: number) {
@@ -239,5 +239,5 @@ export async function writeEnvironmentDelete(environmentId: number) {
         environmentId,
     })
     await bumpPending()
-    schedulePushOutbox()
+    scheduleSync()
 }

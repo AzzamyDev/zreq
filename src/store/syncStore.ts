@@ -3,8 +3,6 @@ import type { ConflictEntry } from '@/lib/local-replica/types'
 
 export type SyncUiState = {
     online: boolean
-    /** Session-only: block pull & push while browser may still be online (not persisted — sync stays automatic after reload). */
-    forceOfflineSync: boolean
     instanceReachable: boolean | null
     pulling: boolean
     pushing: boolean
@@ -16,7 +14,6 @@ export type SyncUiState = {
 
 type SyncStore = SyncUiState & {
     setOnline: (v: boolean) => void
-    setForceOfflineSync: (v: boolean) => void
     setInstanceReachable: (v: boolean | null) => void
     setSyncState: (p: Partial<SyncUiState>) => void
     addConflict: (c: ConflictEntry) => void
@@ -26,7 +23,6 @@ type SyncStore = SyncUiState & {
 
 const initial: SyncUiState = {
     online: typeof navigator !== 'undefined' ? navigator.onLine : true,
-    forceOfflineSync: false,
     instanceReachable: null,
     pulling: false,
     pushing: false,
@@ -40,8 +36,6 @@ export const useSyncStore = create<SyncStore>()((set) => ({
     ...initial,
 
     setOnline: (online) => set({ online }),
-
-    setForceOfflineSync: (forceOfflineSync) => set({ forceOfflineSync }),
 
     setInstanceReachable: (instanceReachable) => set({ instanceReachable }),
 

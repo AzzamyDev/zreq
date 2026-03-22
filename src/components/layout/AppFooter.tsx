@@ -7,10 +7,9 @@ import { cn } from '@/lib/utils'
 export default function AppFooter() {
     const { t } = useTranslation()
     const online = useSyncStore((s) => s.online)
-    const forceOfflineSync = useSyncStore((s) => s.forceOfflineSync)
     const reachable = useSyncStore((s) => s.instanceReachable)
 
-    const warnTone = !online || forceOfflineSync || reachable === false
+    const warnTone = !online || reachable === false
 
     return (
         <footer

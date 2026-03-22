@@ -37,10 +37,8 @@ function readSidebarLayout(): Layout | undefined {
 function AppShell() {
     const user = useAuthStore((s) => s.user)
     const baseUrl = useInstanceStore((s) => s.getActiveBaseUrl())
-    const forceOfflineSync = useSyncStore((s) => s.forceOfflineSync)
     const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
     const prevWsRef = useRef<number | null>(null)
-    const prevForceOfflineRef = useRef(forceOfflineSync)
 
     useEffect(() => {
         const onOff = () => useSyncStore.getState().setOnline(navigator.onLine)
@@ -74,7 +72,7 @@ function AppShell() {
     useEffect(() => {
         let tid: ReturnType<typeof setInterval>
         const probe = async () => {
-            if (!navigator.onLine || useSyncStore.getState().forceOfflineSync) {
+            if (!navigator.onLine) {
                 useSyncStore.getState().setInstanceReachable(false)
                 return
             }
@@ -86,17 +84,9 @@ function AppShell() {
             }
         }
         void probe()
-        tid = setInterval(() => void probe(), 60_000)
+        tid = setInterval(() => void probe(), 30_000)
         return () => clearInterval(tid)
-    }, [baseUrl, forceOfflineSync])
-
-    useEffect(() => {
-        if (!user) return
-        if (prevForceOfflineRef.current && !forceOfflineSync) {
-            void pullThenPush()
-        }
-        prevForceOfflineRef.current = forceOfflineSync
-    }, [forceOfflineSync, user?.id])
+    }, [baseUrl])
 
     useEffect(() => {
         if (!user) return

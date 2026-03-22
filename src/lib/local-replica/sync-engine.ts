@@ -1,3 +1,5 @@
+import { toast } from 'sonner'
+import i18n from '@/i18n/config'
 import { apiClient } from '@/lib/api-client'
 import { useAuthStore } from '@/store/authStore'
 import { useInstanceStore } from '@/store/instanceStore'
@@ -10,12 +12,12 @@ import * as snap from './snapshot-store'
 import { enqueueOp, listPending, removeOp } from './outbox-ops'
 import type { ConflictEntry, OutboxOp } from './types'
 
-let pushScheduled = false
+let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const SYNC_DEBOUNCE_MS = 450
 
-/** True when pull/push to the zreq instance must not run (browser offline or manual pause). */
+/** True when pull/push to the zreq instance must not run (browser offline). */
 export function isRemoteSyncBlocked(): boolean {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return true
-    return useSyncStore.getState().forceOfflineSync
+    return typeof navigator !== 'undefined' && !navigator.onLine
 }
 
 export function getReplicaKeyOrNull(): string | null {
@@ -32,16 +34,17 @@ export async function ensureReplicaLoaded(): Promise<void> {
     await snap.loadSnapshotForReplica(key)
 }
 
-export function schedulePushOutbox() {
-    if (pushScheduled) return
-    pushScheduled = true
-    queueMicrotask(() => {
-        pushScheduled = false
-        void pushOutbox()
-    })
+/** Debounced pull+push after local edits so server changes and conflicts are picked up without manual sync. */
+export function scheduleSync() {
+    if (syncDebounceTimer != null) clearTimeout(syncDebounceTimer)
+    syncDebounceTimer = setTimeout(() => {
+        syncDebounceTimer = null
+        void pullThenPush()
+    }, SYNC_DEBOUNCE_MS)
 }
 
 function addConflict(c: Omit<ConflictEntry, 'id'> & { id?: string }) {
+    const hadConflicts = useSyncStore.getState().conflicts.length > 0
     useSyncStore.getState().addConflict({
         id: c.id ?? `c_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         kind: c.kind,
@@ -51,6 +54,9 @@ function addConflict(c: Omit<ConflictEntry, 'id'> & { id?: string }) {
         server: c.server,
         outboxOpId: c.outboxOpId,
     })
+    if (!hadConflicts) {
+        toast.warning(i18n.t('sync.conflictToast'), { duration: 12_000 })
+    }
 }
 
 /** True when local snapshot already matches remote payload (same server revision can still hide unpushed edits without this). */
@@ -322,7 +328,7 @@ export async function pushOutbox(): Promise<void> {
     useSyncStore.getState().setSyncState({ pendingOutbox: rest.length, pushing: false })
 }
 
-/** Pull server state first, then flush outbox. Prevents push from racing ahead of pull (e.g. after “Pause sync”) and overwriting or skipping conflict detection. */
+/** Pull server state first, then flush outbox so push does not race ahead of pull and miss conflict detection. */
 export async function pullThenPush(): Promise<void> {
     if (isRemoteSyncBlocked()) return
     await pullRemoteFull()

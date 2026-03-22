@@ -5,6 +5,8 @@ interface User {
     id: number
     name: string
     email: string
+    /** false = GitHub/OAuth-only; sync via GET /users/:id if missing (legacy session). */
+    hasPassword?: boolean
 }
 
 interface AuthState {

@@ -22,7 +22,7 @@ export default function AuthShell({ title, description, pill, children, classNam
     return (
         <div
             className={cn(
-                'relative h-full min-h-0 overflow-y-auto bg-background text-foreground',
+                'relative h-full min-h-0 w-full max-w-full overflow-x-hidden overflow-y-auto bg-background text-foreground',
                 className
             )}
         >
@@ -39,7 +39,7 @@ export default function AuthShell({ title, description, pill, children, classNam
                 className="pointer-events-none absolute -right-32 bottom-0 size-[min(90vw,480px)] rounded-full bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--dracula-pink)_18%,transparent)_0%,transparent_70%)] opacity-35 blur-3xl"
             />
 
-            <div className="relative z-10 mx-auto grid min-h-full w-full max-w-6xl lg:grid-cols-[1fr_minmax(0,440px)]">
+            <div className="relative z-10 mx-auto grid min-h-full w-full min-w-0 max-w-6xl lg:grid-cols-[1fr_minmax(0,440px)]">
                 <aside className="relative hidden flex-col justify-between gap-12 p-10 xl:p-14 lg:flex">
                     <div>
                         <p className="text-primary mb-3 text-xs font-semibold tracking-[0.2em] uppercase">
@@ -64,7 +64,7 @@ export default function AuthShell({ title, description, pill, children, classNam
                     </ul>
                 </aside>
 
-                <div className="flex flex-col justify-center px-5 py-10 sm:px-8 sm:py-14 lg:px-10">
+                <div className="flex min-w-0 flex-col justify-center px-5 py-10 sm:px-8 sm:py-14 lg:px-10">
                     <div className="mb-8 flex items-center gap-3 lg:hidden">
                         <div className="bg-primary/20 text-primary flex size-11 items-center justify-center rounded-2xl font-bold tracking-tight">
                             P

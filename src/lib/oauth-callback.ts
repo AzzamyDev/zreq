@@ -3,32 +3,46 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/store/authStore'
 import { useInstanceStore } from '@/store/instanceStore'
 
-type AuthUser = { id: number; name: string; email: string }
+type AuthUser = { id: number; name: string; email: string; hasPassword?: boolean }
+
+/** One HTTP exchange per bridge code — React Strict Mode runs effects twice; bridge is single-use on server. */
+const bridgeInflight = new Map<string, Promise<void>>()
 
 async function exchangeOAuthBridge(code: string, apiBase: string): Promise<void> {
     const base = apiBase.replace(/\/$/, '')
-    try {
-        const { data } = await axios.get<{
-            message?: string | string[]
-            data?: { access_token: string; user: AuthUser }
-        }>(`${base}/auth/oauth-bridge`, {
-            params: { code },
-            headers: { 'ngrok-skip-browser-warning': '69420' },
-        })
-        if (data?.data?.access_token && data?.data?.user) {
-            useAuthStore.getState().setAuth(data.data.access_token, data.data.user)
-            return
-        }
-        const m = data?.message
-        toast.error(Array.isArray(m) ? m.join(', ') : m || 'Could not complete sign-in')
-    } catch (e: unknown) {
-        if (axios.isAxiosError(e)) {
-            const m = e.response?.data?.message
+    const key = `${base}\u0000${code}`
+    const existing = bridgeInflight.get(key)
+    if (existing) return existing
+
+    const run = (async () => {
+        try {
+            const { data } = await axios.get<{
+                message?: string | string[]
+                data?: { access_token: string; user: AuthUser }
+            }>(`${base}/auth/oauth-bridge`, {
+                params: { code },
+                headers: { 'ngrok-skip-browser-warning': '69420' },
+            })
+            if (data?.data?.access_token && data?.data?.user) {
+                useAuthStore.getState().setAuth(data.data.access_token, data.data.user)
+                return
+            }
+            const m = data?.message
             toast.error(Array.isArray(m) ? m.join(', ') : m || 'Could not complete sign-in')
-        } else {
-            toast.error('Could not complete sign-in')
+        } catch (e: unknown) {
+            if (axios.isAxiosError(e)) {
+                const m = e.response?.data?.message
+                toast.error(Array.isArray(m) ? m.join(', ') : m || 'Could not complete sign-in')
+            } else {
+                toast.error('Could not complete sign-in')
+            }
+        } finally {
+            bridgeInflight.delete(key)
         }
-    }
+    })()
+
+    bridgeInflight.set(key, run)
+    return run
 }
 
 /**

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/store/authStore'
-import { useSyncStore } from '@/store/syncStore'
 import { Button } from '@/components/ui/button'
 import {
     Dialog,
@@ -21,8 +20,6 @@ import SettingsDialog from '../settings/SettingsDialog'
 export default function TopBar() {
     const { t } = useTranslation()
     const { user, logout } = useAuthStore()
-    const forceOfflineSync = useSyncStore((s) => s.forceOfflineSync)
-    const setForceOfflineSync = useSyncStore((s) => s.setForceOfflineSync)
     const [profileOpen, setProfileOpen] = useState(false)
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [signOutOpen, setSignOutOpen] = useState(false)
@@ -33,17 +30,6 @@ export default function TopBar() {
                 <span className="shrink-0 text-sm font-semibold tracking-wide">{t('auth.appTitle')}</span>
                 <InstanceSwitcher />
                 <WorkspaceSwitcher />
-                <Button
-                    type="button"
-                    size="xs"
-                    variant={forceOfflineSync ? 'secondary' : 'outline'}
-                    className="shrink-0 font-normal"
-                    title={t('sync.forceOfflineHint')}
-                    aria-pressed={forceOfflineSync}
-                    onClick={() => setForceOfflineSync(!forceOfflineSync)}
-                >
-                    {t('sync.forceOfflineToggle')}
-                </Button>
             </div>
 
             <div className="flex items-center gap-3">

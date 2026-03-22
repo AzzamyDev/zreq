@@ -48,6 +48,31 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
         }
     }, [open, user])
 
+    useEffect(() => {
+        if (!open || !user?.id || !token) return
+        if (user.hasPassword !== undefined) return
+        let cancelled = false
+        ;(async () => {
+            try {
+                const res = await apiClient.get<{ data?: { hasPassword?: boolean; name?: string } }>(
+                    `/users/${user.id}`
+                )
+                const d = res.data.data
+                if (cancelled || !d || typeof d.hasPassword !== 'boolean') return
+                setAuth(token, {
+                    ...user,
+                    name: d.name ?? user.name,
+                    hasPassword: d.hasPassword,
+                })
+            } catch {
+                /* ignore */
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [open, user, token, setAuth])
+
     const handleSaveName = async () => {
         setNameError('')
         if (!name.trim()) {
@@ -64,9 +89,15 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
         }
     }
 
+    const needsCurrentPassword = user?.hasPassword === true
+
     const handleChangePassword = async () => {
         setPwError('')
-        if (!currentPw || !newPw) {
+        if (needsCurrentPassword && !currentPw) {
+            setPwError(t('profile.errors.allFieldsRequired'))
+            return
+        }
+        if (!newPw) {
             setPwError(t('profile.errors.allFieldsRequired'))
             return
         }
@@ -80,13 +111,14 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
         }
         try {
             await apiClient.patch(`/users/${user?.id}/password`, {
-                currentPassword: currentPw,
+                ...(needsCurrentPassword ? { currentPassword: currentPw } : {}),
                 newPassword: newPw,
             })
             setCurrentPw('')
             setNewPw('')
             setConfirmPw('')
             setPwSuccess(true)
+            if (token && user) setAuth(token, { ...user, hasPassword: true })
             setTimeout(() => setPwSuccess(false), 2000)
         } catch (err: any) {
             setPwError(err.response?.data?.message ?? t('profile.errors.passwordChangeFailed'))
@@ -209,13 +241,24 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
                                 {t('profile.security')}
                             </h3>
                             <div className="flex flex-col gap-2">
-                                <p className="text-sm font-medium">{t('profile.changePasswordTitle')}</p>
-                                <Input
-                                    type="password"
-                                    placeholder={t('profile.currentPasswordPlaceholder')}
-                                    value={currentPw}
-                                    onChange={(e) => setCurrentPw(e.target.value)}
-                                />
+                                <p className="text-sm font-medium">
+                                    {needsCurrentPassword
+                                        ? t('profile.changePasswordTitle')
+                                        : t('profile.setPasswordTitle')}
+                                </p>
+                                {!needsCurrentPassword && user?.hasPassword === false && (
+                                    <p className="text-xs text-muted-foreground">
+                                        {t('profile.setPasswordHint')}
+                                    </p>
+                                )}
+                                {needsCurrentPassword && (
+                                    <Input
+                                        type="password"
+                                        placeholder={t('profile.currentPasswordPlaceholder')}
+                                        value={currentPw}
+                                        onChange={(e) => setCurrentPw(e.target.value)}
+                                    />
+                                )}
                                 <Input
                                     type="password"
                                     placeholder={t('profile.newPasswordPlaceholder')}
@@ -244,7 +287,9 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
                                     className="mt-1 w-full sm:w-auto"
                                     onClick={handleChangePassword}
                                 >
-                                    {t('profile.changePassword')}
+                                    {needsCurrentPassword
+                                        ? t('profile.changePassword')
+                                        : t('profile.setPassword')}
                                 </Button>
                             </div>
                         </section>
