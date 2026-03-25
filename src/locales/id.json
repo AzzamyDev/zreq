@@ -518,6 +518,8 @@
     "mcpTokenAuthMethod": "Metode Auth Token Endpoint",
     "mcpAuthMethodPost": "client_secret_post (disarankan)",
     "mcpAuthMethodNone": "none (public client)",
+    "mcpAuthMethodNoneHint": "Gunakan untuk Cursor dan agent PKCE-only yang tidak mengirim client_secret. Secret tidak akan dibuat.",
+    "mcpAuthMethodSecretHint": "Gunakan untuk Claude dan agent yang mendukung client credentials. client_secret akan dibuat — simpan sekali saja.",
     "mcpLoading": "Memuat…",
     "mcpLoginRequired": "Login ke ZReq di instance ini untuk mengelola klien OAuth MCP.",
     "mcpAddClient": "Tambah klien",

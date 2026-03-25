@@ -161,7 +161,9 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     redirect_uris,
                     token_endpoint_auth_method: formAuthMethod
                 })
-                setMcpLastSecret({ client_id: created.client_id, client_secret: created.client_secret })
+                if (created.client_secret) {
+                        setMcpLastSecret({ client_id: created.client_id, client_secret: created.client_secret })
+                    }
             }
             const rows = await listMcpOAuthClients()
             setMcpClients(rows)
@@ -738,6 +740,15 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                                     <SelectItem value="none">{t('settings.mcpAuthMethodNone')}</SelectItem>
                                                 </SelectContent>
                                             </Select>
+                                            {formAuthMethod === 'none' ? (
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {t('settings.mcpAuthMethodNoneHint')}
+                                                </p>
+                                            ) : (
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {t('settings.mcpAuthMethodSecretHint')}
+                                                </p>
+                                            )}
                                         </div>
                                         {mcpFormErr ? <p className="text-destructive text-xs">{mcpFormErr}</p> : null}
                                     </div>

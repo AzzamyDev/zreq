@@ -518,6 +518,8 @@
     "mcpTokenAuthMethod": "Token Endpoint Auth Method",
     "mcpAuthMethodPost": "client_secret_post (recommended)",
     "mcpAuthMethodNone": "none (public client)",
+    "mcpAuthMethodNoneHint": "Use this for Cursor and other PKCE-only agents that do not send a client_secret. No secret will be generated.",
+    "mcpAuthMethodSecretHint": "Use this for Claude and agents that support client credentials. A client_secret will be generated — save it once.",
     "mcpLoading": "Loading…",
     "mcpLoginRequired": "Log in to ZReq on this instance to manage MCP OAuth clients.",
     "mcpAddClient": "Add client",

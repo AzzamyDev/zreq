@@ -11,7 +11,7 @@ export type McpOAuthClientRow = {
     updated_at: string
 }
 
-export type McpOAuthClientCreated = McpOAuthClientRow & { client_secret: string }
+export type McpOAuthClientCreated = McpOAuthClientRow & { client_secret?: string }
 
 export async function listMcpOAuthClients() {
     const res = await apiClient.get<{ data: McpOAuthClientRow[] }>('/mcp-oauth-clients')
