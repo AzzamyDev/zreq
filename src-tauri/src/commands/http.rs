@@ -4,6 +4,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -26,6 +27,39 @@ pub struct ResponsePayload {
     pub body: String,
     pub duration_ms: u64,
     pub size_bytes: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct MultipartField {
+    key: String,
+    #[serde(default)]
+    value: String,
+    #[serde(default = "default_true")]
+    enabled: bool,
+    #[serde(default, rename = "valueType")]
+    value_type: String,
+    #[serde(default, rename = "fileName")]
+    file_name: String,
+    #[serde(default, rename = "fileMimeType")]
+    file_mime_type: String,
+    #[serde(default, rename = "fileBase64")]
+    file_base64: String,
+    #[serde(default, rename = "fileParts")]
+    file_parts: Vec<MultipartFilePart>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MultipartFilePart {
+    #[serde(default)]
+    name: String,
+    #[serde(default, rename = "mimeType")]
+    mime_type: String,
+    #[serde(default)]
+    base64: String,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[tauri::command]
@@ -63,17 +97,45 @@ pub async fn send_request(payload: RequestPayload) -> Result<ResponsePayload, St
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .body(body.clone()),
             "form-data" => {
-                // body is JSON array of {key, value, enabled}
-                let kvs: Vec<serde_json::Value> =
+                let fields: Vec<MultipartField> =
                     serde_json::from_str(body).map_err(|e| format!("Bad form-data: {e}"))?;
                 let mut form = reqwest::multipart::Form::new();
-                for kv in kvs {
-                    if kv["enabled"].as_bool().unwrap_or(true) {
-                        let k = kv["key"].as_str().unwrap_or("").to_string();
-                        let v = kv["value"].as_str().unwrap_or("").to_string();
-                        if !k.is_empty() {
-                            form = form.text(k, v);
+                for field in fields {
+                    if !field.enabled || field.key.is_empty() {
+                        continue;
+                    }
+                    if field.value_type == "file" {
+                        let parts = if field.file_parts.is_empty() {
+                            vec![MultipartFilePart {
+                                name: field.file_name.clone(),
+                                mime_type: field.file_mime_type.clone(),
+                                base64: field.file_base64.clone(),
+                            }]
+                        } else {
+                            field.file_parts
+                        };
+                        for file_part in parts {
+                            if file_part.base64.is_empty() {
+                                continue;
+                            }
+                            let bytes = BASE64_STANDARD
+                                .decode(file_part.base64.as_bytes())
+                                .map_err(|e| format!("Bad form-data file ({}): {e}", field.key))?;
+                            let mut part = reqwest::multipart::Part::bytes(bytes)
+                                .file_name(if file_part.name.is_empty() {
+                                    "upload.bin".to_string()
+                                } else {
+                                    file_part.name.clone()
+                                });
+                            if !file_part.mime_type.is_empty() {
+                                part = part
+                                    .mime_str(&file_part.mime_type)
+                                    .map_err(|e| format!("Bad file mime type ({}): {e}", field.key))?;
+                            }
+                            form = form.part(field.key.clone(), part);
                         }
+                    } else {
+                        form = form.text(field.key, field.value);
                     }
                 }
                 builder.multipart(form)

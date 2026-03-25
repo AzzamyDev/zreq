@@ -229,7 +229,7 @@ function templateVarHover(scope?: VariableSuggestionScope) {
                         switchLink.onclick = () => {
                             closeTip()
                             document
-                                .querySelector<HTMLElement>('[data-postwoman-focus="environment-selector"]')
+                                .querySelector<HTMLElement>('[data-zreq-focus="environment-selector"]')
                                 ?.click()
                         }
                         const varsLink = document.createElement('button')
@@ -240,7 +240,7 @@ function templateVarHover(scope?: VariableSuggestionScope) {
                         varsLink.onclick = () => {
                             closeTip()
                             document
-                                .querySelector<HTMLElement>('[data-postwoman-focus="environment-selector"]')
+                                .querySelector<HTMLElement>('[data-zreq-focus="environment-selector"]')
                                 ?.click()
                         }
                         foot.append(switchLink, varsLink)
@@ -377,7 +377,7 @@ function templateVarHover(scope?: VariableSuggestionScope) {
                     switchLink.textContent = i18n.t('vars.jsonBodySwitchEnvironment')
                     switchLink.onclick = () => {
                         closeTip()
-                        document.querySelector<HTMLElement>('[data-postwoman-focus="environment-selector"]')?.click()
+                        document.querySelector<HTMLElement>('[data-zreq-focus="environment-selector"]')?.click()
                     }
                     foot.append(switchLink)
 

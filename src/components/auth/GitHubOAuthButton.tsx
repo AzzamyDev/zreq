@@ -2,15 +2,9 @@ import { useTranslation } from 'react-i18next'
 import { Github } from 'lucide-react'
 import { isTauri } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
-import { normalizeBaseUrl, useInstanceStore } from '@/store/instanceStore'
+import { useInstanceStore } from '@/store/instanceStore'
 
-/** Public API URL for OAuth only (e.g. ngrok). If unset, uses active instance / VITE_API_URL. */
 function oauthStartBase(): string {
-    const raw = (import.meta.env.VITE_OAUTH_API_BASE as string | undefined)?.trim()
-    if (raw) {
-        const n = normalizeBaseUrl(raw)
-        if (n) return n.replace(/\/$/, '')
-    }
     return useInstanceStore.getState().getActiveBaseUrl().replace(/\/$/, '')
 }
 

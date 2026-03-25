@@ -3,9 +3,9 @@ import { nanoid } from 'nanoid'
 
 export type BackendInstance = { id: string; name: string; baseUrl: string }
 
-const STORAGE_KEY = 'postwoman_instances'
+const STORAGE_KEY = 'zreq_instances'
 
-const DEFAULT_FALLBACK = 'http://localhost:3001'
+export const DEFAULT_FALLBACK = 'http://localhost:3001'
 
 export function normalizeBaseUrl(raw: string): string | null {
     const t = raw.trim()
@@ -40,8 +40,7 @@ function persist(shape: PersistedShape) {
 }
 
 function defaultInstancesFromEnv(): PersistedShape {
-    const raw = (import.meta.env.VITE_API_URL as string | undefined) || DEFAULT_FALLBACK
-    const baseUrl = normalizeBaseUrl(raw) || DEFAULT_FALLBACK
+    const baseUrl = DEFAULT_FALLBACK
     const id = nanoid()
     return {
         instances: [{ id, name: 'Local', baseUrl }],
@@ -124,11 +123,7 @@ export const useInstanceStore = create<InstanceState>()((set, get) => ({
     getActiveBaseUrl: () => {
         const { instances, activeInstanceId } = get()
         const a = instances.find((i) => i.id === activeInstanceId)
-        return (
-            a?.baseUrl ??
-            normalizeBaseUrl((import.meta.env.VITE_API_URL as string) || '') ??
-            DEFAULT_FALLBACK
-        )
+        return a?.baseUrl ?? DEFAULT_FALLBACK
     },
 
     setActiveInstanceId: (id) => {

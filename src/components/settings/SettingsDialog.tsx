@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Settings, Palette, Info, Server, X } from 'lucide-react'
+import { Settings, Palette, Info, Server, KeyRound, X } from 'lucide-react'
 import { setThemeAccent } from '@/lib/themeAccent'
 import { setAppLocale } from '@/i18n/config'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -8,18 +8,18 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { useInstanceStore } from '@/store/instanceStore'
 import { applyInstanceSwitch } from '@/lib/apply-instance-switch'
-import { validatePostwomanBackend } from '@/lib/probe-backend'
+import { validatezreqBackend } from '@/lib/probe-backend'
 
 function useSettings() {
     const get = (key: string, fallback: any) => {
         try {
-            return JSON.parse(localStorage.getItem(`postwoman_${key}`) ?? 'null') ?? fallback
+            return JSON.parse(localStorage.getItem(`zreq_${key}`) ?? 'null') ?? fallback
         } catch {
             return fallback
         }
     }
     const set = (key: string, value: any) =>
-        localStorage.setItem(`postwoman_${key}`, JSON.stringify(value))
+        localStorage.setItem(`zreq_${key}`, JSON.stringify(value))
     return { get, set }
 }
 
@@ -32,7 +32,11 @@ const ACCENT_PRESETS = [
     { name: 'Yellow', value: '#f1fa8c' },
 ]
 
-type Section = 'general' | 'instance' | 'themes' | 'about'
+type Section = 'general' | 'instance' | 'mcp' | 'themes' | 'about'
+type McpRegisteredClient = {
+    client_id: string
+    client_secret?: string
+}
 
 interface SettingsDialogProps {
     open: boolean
@@ -51,10 +55,24 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const instances = useInstanceStore((s) => s.instances)
     const activeInstanceId = useInstanceStore((s) => s.activeInstanceId)
     const addInstance = useInstanceStore((s) => s.addInstance)
+    const getActiveBaseUrl = useInstanceStore((s) => s.getActiveBaseUrl)
+    const activeMcpBaseUrl = useMemo(() => getActiveBaseUrl(), [getActiveBaseUrl, activeInstanceId, instances])
     const [qaName, setQaName] = useState('')
     const [qaUrl, setQaUrl] = useState('')
     const [qaErr, setQaErr] = useState('')
     const [qaBusy, setQaBusy] = useState(false)
+    const mcpBaseUrl = activeMcpBaseUrl
+    const [mcpClientName, setMcpClientName] = useState('ZReq Claude Connector')
+    const [mcpRedirectUri, setMcpRedirectUri] = useState('https://claude.ai/api/mcp/auth_callback')
+    const [mcpAuthMethod, setMcpAuthMethod] = useState<'none' | 'client_secret_post' | 'client_secret_basic'>(
+        'client_secret_post'
+    )
+    const [mcpBusy, setMcpBusy] = useState(false)
+    const [mcpErr, setMcpErr] = useState('')
+    const [mcpHint, setMcpHint] = useState('')
+    const [mcpRegistered, setMcpRegistered] = useState<McpRegisteredClient | null>(
+        () => get('mcpOAuthRegisteredClient', null) as McpRegisteredClient | null
+    )
 
     if (!open) return null
 
@@ -70,6 +88,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const NAV_ITEMS: { id: Section; label: string; icon: ReactNode }[] = [
         { id: 'general', label: t('settings.navGeneral'), icon: <Settings className="h-4 w-4" /> },
         { id: 'instance', label: t('settings.navInstance'), icon: <Server className="h-4 w-4" /> },
+        { id: 'mcp', label: t('settings.navMcp'), icon: <KeyRound className="h-4 w-4" /> },
         { id: 'themes', label: t('settings.navThemes'), icon: <Palette className="h-4 w-4" /> },
         { id: 'about', label: t('settings.navAbout'), icon: <Info className="h-4 w-4" /> },
     ]
@@ -77,7 +96,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const submitQuickAddInstance = async () => {
         setQaErr('')
         setQaBusy(true)
-        const v = await validatePostwomanBackend(qaUrl)
+        const v = await validatezreqBackend(qaUrl)
         if (!v.ok) {
             setQaErr(
                 t(
@@ -102,6 +121,87 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         applyInstanceSwitch(r.id)
         setQaBusy(false)
     }
+
+    const cacheKey = JSON.stringify({
+        base: mcpBaseUrl.trim().replace(/\/+$/, ''),
+        clientName: mcpClientName.trim(),
+        redirectUri: mcpRedirectUri.trim(),
+        authMethod: mcpAuthMethod
+    })
+
+    const registerMcpClient = async (forceRegenerate = false) => {
+        setMcpErr('')
+        setMcpHint('')
+        if (!mcpBaseUrl.trim()) {
+            setMcpErr(t('settings.mcpErrors.baseUrlRequired'))
+            return
+        }
+        if (!mcpClientName.trim()) {
+            setMcpErr(t('settings.mcpErrors.clientNameRequired'))
+            return
+        }
+        if (!mcpRedirectUri.trim()) {
+            setMcpErr(t('settings.mcpErrors.redirectUriRequired'))
+            return
+        }
+        const saved = get('mcpOAuthRegistrationCache', {}) as Record<string, McpRegisteredClient>
+        if (!forceRegenerate && saved[cacheKey]) {
+            setMcpRegistered(saved[cacheKey])
+            set('mcpOAuthRegisteredClient', saved[cacheKey])
+            setMcpHint(t('settings.mcpHints.usingSaved'))
+            return
+        }
+        setMcpBusy(true)
+        try {
+            const base = mcpBaseUrl.replace(/\/+$/, '')
+            const res = await fetch(`${base}/mcp/oauth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client_name: mcpClientName.trim(),
+                    redirect_uris: [mcpRedirectUri.trim()],
+                    token_endpoint_auth_method: mcpAuthMethod
+                })
+            })
+            const json = await res.json()
+            if (!res.ok) {
+                throw new Error(json?.message || t('settings.mcpErrors.registerFailed'))
+            }
+            setMcpRegistered({
+                client_id: String(json?.client_id || ''),
+                client_secret:
+                    typeof json?.client_secret === 'string' ? json.client_secret : undefined
+            })
+            const out = {
+                client_id: String(json?.client_id || ''),
+                client_secret: typeof json?.client_secret === 'string' ? json.client_secret : undefined
+            }
+            set('mcpOAuthRegisteredClient', out)
+            set('mcpOAuthRegistrationCache', {
+                ...saved,
+                [cacheKey]: out
+            })
+            setMcpHint(t('settings.mcpHints.saved'))
+        } catch (error) {
+            setMcpErr(error instanceof Error ? error.message : t('settings.mcpErrors.registerFailed'))
+        } finally {
+            setMcpBusy(false)
+        }
+    }
+
+    const normalizedMcpBase = mcpBaseUrl.trim().replace(/\/+$/, '')
+    const mcpEndpoints = normalizedMcpBase
+        ? {
+              mcp: `${normalizedMcpBase}/mcp`,
+              register: `${normalizedMcpBase}/mcp/oauth/register`,
+              authorize: `${normalizedMcpBase}/mcp/oauth/authorize`,
+              token: `${normalizedMcpBase}/mcp/oauth/token`,
+              callback: `${normalizedMcpBase}/mcp/oauth/callback`,
+              localLogin: `${normalizedMcpBase}/mcp/oauth/local-login`,
+              wellKnownAuthz: `${normalizedMcpBase}/.well-known/oauth-authorization-server`,
+              wellKnownResource: `${normalizedMcpBase}/.well-known/oauth-protected-resource`
+          }
+        : null
 
     return (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
@@ -309,6 +409,159 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                     >
                                         {qaBusy ? t('instance.validating') : t('instance.addAndSwitch')}
                                     </Button>
+                                </div>
+                            </div>
+
+                        </div>
+                    )}
+
+                    {section === 'mcp' && (
+                        <div className="space-y-8">
+                            <h2 className="text-xl font-semibold">{t('settings.mcpTitle')}</h2>
+                            <p className="text-sm text-muted-foreground -mt-4">
+                                {t('settings.mcpSubtitle')}
+                            </p>
+
+                            <div className="space-y-4 border-t border-border pt-6">
+                                <p className="text-sm font-medium">{t('settings.mcpGeneratorTitle')}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {t('settings.mcpGeneratorHint')}
+                                </p>
+                                <div className="grid max-w-xl gap-3">
+                                    <div className="grid gap-1">
+                                        <label className="text-muted-foreground text-xs">{t('settings.mcpBaseUrl')}</label>
+                                        <Input
+                                            value={mcpBaseUrl}
+                                            readOnly
+                                            placeholder="https://your-ngrok-domain.ngrok-free.app"
+                                        />
+                                        <p className="text-[11px] text-muted-foreground">
+                                            {t('settings.mcpBaseUrlHint')}{' '}
+                                            <span className="font-mono">https://backend.zreq.com</span>
+                                        </p>
+                                    </div>
+                                    {mcpEndpoints ? (
+                                        <div className="rounded border border-border bg-muted/20 p-3 text-[11px] space-y-1.5">
+                                            <p className="text-muted-foreground font-medium">{t('settings.mcpDerivedUrls')}</p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpConnectorUrl')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.mcp}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpOauthRegister')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.register}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpOauthAuthorize')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.authorize}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpOauthToken')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.token}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpOauthCallback')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.callback}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpOauthLocalLogin')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.localLogin}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpWellKnownAuth')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.wellKnownAuthz}</span>
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">{t('settings.mcpWellKnownResource')}</span>{' '}
+                                                <span className="font-mono">{mcpEndpoints.wellKnownResource}</span>
+                                            </p>
+                                        </div>
+                                    ) : null}
+                                    <div className="grid gap-1">
+                                        <label className="text-muted-foreground text-xs">{t('settings.mcpClientName')}</label>
+                                        <Input
+                                            value={mcpClientName}
+                                            onChange={(e) => setMcpClientName(e.target.value)}
+                                            placeholder="ZReq Claude Connector"
+                                        />
+                                    </div>
+                                    <div className="grid gap-1">
+                                        <label className="text-muted-foreground text-xs">{t('settings.mcpRedirectUri')}</label>
+                                        <Input
+                                            value={mcpRedirectUri}
+                                            onChange={(e) => setMcpRedirectUri(e.target.value)}
+                                            placeholder="https://claude.ai/api/mcp/auth_callback"
+                                        />
+                                    </div>
+                                    <div className="grid gap-1">
+                                        <label className="text-muted-foreground text-xs">
+                                            {t('settings.mcpTokenAuthMethod')}
+                                        </label>
+                                        <Select
+                                            value={mcpAuthMethod}
+                                            onValueChange={(v) =>
+                                                setMcpAuthMethod(
+                                                    v as
+                                                        | 'none'
+                                                        | 'client_secret_post'
+                                                        | 'client_secret_basic'
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="client_secret_post">
+                                                    {t('settings.mcpAuthMethodPost')}
+                                                </SelectItem>
+                                                <SelectItem value="client_secret_basic">
+                                                    client_secret_basic
+                                                </SelectItem>
+                                                <SelectItem value="none">{t('settings.mcpAuthMethodNone')}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    {mcpErr ? <p className="text-destructive text-xs">{mcpErr}</p> : null}
+                                    {mcpHint ? <p className="text-emerald-500 text-xs">{mcpHint}</p> : null}
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="w-fit"
+                                        disabled={mcpBusy}
+                                        onClick={() => void registerMcpClient()}
+                                    >
+                                        {mcpBusy ? t('settings.mcpGenerating') : t('settings.mcpGenerate')}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="w-fit"
+                                        disabled={mcpBusy}
+                                        onClick={() => void registerMcpClient(true)}
+                                    >
+                                        {t('settings.mcpRegenerate')}
+                                    </Button>
+                                    {mcpRegistered ? (
+                                        <div className="rounded border border-border bg-muted/20 p-3 text-xs space-y-1">
+                                            <p>
+                                                <span className="text-muted-foreground">client_id:</span>{' '}
+                                                {mcpRegistered.client_id}
+                                            </p>
+                                            <p>
+                                                <span className="text-muted-foreground">client_secret:</span>{' '}
+                                                {mcpRegistered.client_secret || '(none)'}
+                                            </p>
+                                        </div>
+                                    ) : null}
+                                    <div className="rounded border border-border bg-muted/20 p-3 text-[11px] space-y-1.5">
+                                        <p className="text-muted-foreground font-medium">{t('settings.mcpFlowTitle')}</p>
+                                        <p>{t('settings.mcpFlow1')}</p>
+                                        <p>{t('settings.mcpFlow2')}</p>
+                                        <p>{t('settings.mcpFlow3')}</p>
+                                        <p>{t('settings.mcpFlow4')}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>

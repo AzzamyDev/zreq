@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { normalizeBaseUrl, useInstanceStore, type BackendInstance } from '@/store/instanceStore'
 import { applyInstanceSwitch, refreshSessionForCurrentBackend } from '@/lib/apply-instance-switch'
-import { validatePostwomanBackend } from '@/lib/probe-backend'
+import { validatezreqBackend } from '@/lib/probe-backend'
 
 type InstanceSwitcherProps = {
     /** Narrower trigger when used on auth screen */
@@ -69,7 +69,7 @@ export default function InstanceSwitcher({ variant = 'toolbar' }: InstanceSwitch
     const submitCreate = async () => {
         setCreateBusy(true)
         setCreateErr('')
-        const v = await validatePostwomanBackend(createUrl)
+        const v = await validatezreqBackend(createUrl)
         if (!v.ok) {
             setCreateErr(
                 t(
@@ -109,7 +109,7 @@ export default function InstanceSwitcher({ variant = 'toolbar' }: InstanceSwitch
         setEditErr('')
         const nextNorm = normalizeBaseUrl(editUrl)
         if (nextNorm !== prevUrl) {
-            const v = await validatePostwomanBackend(editUrl)
+            const v = await validatezreqBackend(editUrl)
             if (!v.ok) {
                 setEditErr(
                     t(

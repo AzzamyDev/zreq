@@ -47,7 +47,6 @@ A good fit for teams that already run a ZReq backend and want one desktop app fo
 ```bash
 cd client
 cp .env.example .env
-# Point VITE_API_URL at your ZReq backend URL
 pnpm install
 pnpm tauri dev
 ```
@@ -58,7 +57,7 @@ Desktop production build:
 pnpm tauri build
 ```
 
-See `.env.example` for important variables (including optional `VITE_OAUTH_API_BASE` for OAuth via a tunnel such as ngrok).
+Backend URL is configured from the active instance inside the app (Instance Onboarding / Instance Settings).
 
 ---
 

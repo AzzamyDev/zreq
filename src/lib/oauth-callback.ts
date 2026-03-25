@@ -6,7 +6,7 @@ import { useInstanceStore } from '@/store/instanceStore'
 
 type AuthUser = { id: number; name: string; email: string; hasPassword?: boolean }
 
-const BRIDGE_USED_KEY = 'postwoman_oauth_bridge_codes'
+const BRIDGE_USED_KEY = 'zreq_oauth_bridge_codes'
 
 function readUsedBridgeCodes(): Set<string> {
     try {

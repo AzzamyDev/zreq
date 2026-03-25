@@ -1,17 +1,19 @@
 import axios from 'axios'
 import { useAuthStore } from '../store/authStore'
-import { useInstanceStore } from '../store/instanceStore'
-
-const FALLBACK_BASE =
-    (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3001'
+import { DEFAULT_FALLBACK, useInstanceStore } from '../store/instanceStore'
 
 export const apiClient = axios.create({
-    baseURL: FALLBACK_BASE,
+    baseURL: DEFAULT_FALLBACK,
     headers: { 'Content-Type': 'application/json' },
 })
 
 apiClient.interceptors.request.use((config) => {
-    config.baseURL = useInstanceStore.getState().getActiveBaseUrl()
+    const baseUrl = useInstanceStore.getState().getActiveBaseUrl()
+    config.baseURL = baseUrl
+    // Bypass ngrok free-tier browser warning interstitial for all API requests
+    if (baseUrl.includes('ngrok')) {
+        config.headers['ngrok-skip-browser-warning'] = '1'
+    }
     const token = useAuthStore.getState().token
     if (token) {
         config.headers.Authorization = `Bearer ${token}`

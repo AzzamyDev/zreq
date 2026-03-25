@@ -17,8 +17,8 @@ interface AuthState {
     logout: () => void
 }
 
-const TOKEN_KEY = 'postwoman_token'
-const USER_KEY = 'postwoman_user'
+const TOKEN_KEY = 'zreq_token'
+const USER_KEY = 'zreq_user'
 
 function loadFromStorage(): { token: string | null; user: User | null } {
     try {

@@ -14,12 +14,44 @@ import * as snap from './snapshot-store'
 import { enqueueOp, listPending, removeOp } from './outbox-ops'
 import type { ConflictEntry, OutboxOp } from './types'
 
-let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
-const SYNC_DEBOUNCE_MS = 450
+// ---------------------------------------------------------------------------
+// Constants & module-level state
+// ---------------------------------------------------------------------------
 
-/** Avoid footer "syncing" flash on fast pulls. */
+const SYNC_DEBOUNCE_MS = 450
+let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
 const PULLING_INDICATOR_DELAY_MS = 220
 let pullingIndicatorTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Serialize pull+push so concurrent triggers never apply state twice. */
+let pullPushChain: Promise<void> = Promise.resolve()
+
+/**
+ * Guard: prevent bootstrap workspace creation from running more than once per
+ * replica across reloads. Persisted to localStorage so it survives page refresh.
+ */
+const BOOTSTRAP_WS_KEY = 'zreq_bootstrap_ws:'
+const bootstrapAttempted = new Set<string>()
+
+function hasBootstrappedWorkspace(replicaKey: string): boolean {
+    if (bootstrapAttempted.has(replicaKey)) return true
+    try { return localStorage.getItem(`${BOOTSTRAP_WS_KEY}${replicaKey}`) === '1' } catch { return false }
+}
+
+function markBootstrappedWorkspace(replicaKey: string) {
+    bootstrapAttempted.add(replicaKey)
+    try { localStorage.setItem(`${BOOTSTRAP_WS_KEY}${replicaKey}`, '1') } catch { /* ignore */ }
+}
+
+function clearBootstrappedWorkspace(replicaKey: string) {
+    bootstrapAttempted.delete(replicaKey)
+    try { localStorage.removeItem(`${BOOTSTRAP_WS_KEY}${replicaKey}`) } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function armPullingIndicator() {
     if (pullingIndicatorTimer != null) clearTimeout(pullingIndicatorTimer)
@@ -35,37 +67,6 @@ function disarmPullingIndicator() {
         pullingIndicatorTimer = null
     }
     useSyncStore.getState().setSyncState({ pulling: false })
-}
-
-/** Serialize pull+push so overlapping triggers do not apply UI state twice in a row. */
-let pullPushChain: Promise<void> = Promise.resolve()
-
-/** True when pull/push to the zreq instance must not run (browser offline). */
-export function isRemoteSyncBlocked(): boolean {
-    return typeof navigator !== 'undefined' && !navigator.onLine
-}
-
-export function getReplicaKeyOrNull(): string | null {
-    const user = useAuthStore.getState().user
-    if (!user) return null
-    const base = useInstanceStore.getState().getActiveBaseUrl()
-    return makeReplicaKey(base, user.id)
-}
-
-export async function ensureReplicaLoaded(): Promise<void> {
-    const key = getReplicaKeyOrNull()
-    if (!key) return
-    if (snap.getCurrentReplicaKey() === key && snap.getMemorySnapshot()) return
-    await snap.loadSnapshotForReplica(key)
-}
-
-/** Debounced pull+push after local edits so server changes and conflicts are picked up without manual sync. */
-export function scheduleSync() {
-    if (syncDebounceTimer != null) clearTimeout(syncDebounceTimer)
-    syncDebounceTimer = setTimeout(() => {
-        syncDebounceTimer = null
-        void pullThenPush()
-    }, SYNC_DEBOUNCE_MS)
 }
 
 function addConflict(c: Omit<ConflictEntry, 'id'> & { id?: string }) {
@@ -88,7 +89,15 @@ function isNotFound(e: unknown): boolean {
     return isAxiosError(e) && e.response?.status === 404
 }
 
-/** True when local snapshot already matches remote payload (same server revision can still hide unpushed edits without this). */
+function getHttpStatus(e: unknown): number | null {
+    return isAxiosError(e) ? (e.response?.status ?? null) : null
+}
+
+function isPermanentOutboxError(e: unknown): boolean {
+    const status = getHttpStatus(e)
+    return status === 400 || status === 403 || status === 404 || status === 409
+}
+
 function environmentContentMatchesServer(local: Environment | null | undefined, remote: Environment): boolean {
     if (!local) return false
     if (local.name !== remote.name) return false
@@ -104,170 +113,246 @@ function collectionContentMatchesServer(local: Collection | null | undefined, re
     return stableStringify(local.items, 0) === stableStringify(remote.items, 0)
 }
 
-function mergeWorkspaces(remote: Workspace[], mem: NonNullable<ReturnType<typeof snap.getMemorySnapshot>>): Workspace[] {
-    return remote.map((r) => {
-        const meta = mem.metaWorkspace[r.id]
-        if (!meta?.dirty) return r
-        const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
-        if (r.updatedAt === base) return r
-        const local = mem.workspaces.find((w) => w.id === r.id)
-        return local ?? r
-    })
+
+async function removePendingCollectionDeletesFor(replicaKey: string, workspaceId: number, collectionId: number) {
+    const ops = await listPending(replicaKey)
+    for (const o of ops) {
+        if (o.type === 'collection_delete' && o.workspaceId === workspaceId && o.collectionId === collectionId) {
+            await removeOp(o.id)
+        }
+    }
 }
 
-/** Rows still on the server but queued for DELETE locally — must not be re-applied on pull before push runs. */
-async function pendingCollectionDeletesForWorkspace(replicaKey: string, workspaceId: number): Promise<Set<number>> {
+async function removePendingEnvironmentDeletesFor(replicaKey: string, environmentId: number) {
     const ops = await listPending(replicaKey)
-    const s = new Set<number>()
     for (const o of ops) {
-        if (o.type === 'collection_delete' && o.workspaceId === workspaceId) s.add(o.collectionId)
+        if (o.type === 'environment_delete' && o.environmentId === environmentId) {
+            await removeOp(o.id)
+        }
     }
-    return s
 }
 
-async function pendingEnvironmentDeletes(replicaKey: string): Promise<Set<number>> {
-    const ops = await listPending(replicaKey)
-    const s = new Set<number>()
-    for (const o of ops) {
-        if (o.type === 'environment_delete') s.add(o.environmentId)
-    }
-    return s
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export function isRemoteSyncBlocked(): boolean {
+    return typeof navigator !== 'undefined' && !navigator.onLine
 }
+
+export function getReplicaKeyOrNull(): string | null {
+    const user = useAuthStore.getState().user
+    if (!user) return null
+    const base = useInstanceStore.getState().getActiveBaseUrl()
+    return makeReplicaKey(base, user.id)
+}
+
+export async function ensureReplicaLoaded(): Promise<void> {
+    const key = getReplicaKeyOrNull()
+    if (!key) return
+    if (snap.getCurrentReplicaKey() === key && snap.getMemorySnapshot()) return
+    await snap.loadSnapshotForReplica(key)
+}
+
+export function scheduleSync() {
+    if (syncDebounceTimer != null) clearTimeout(syncDebounceTimer)
+    syncDebounceTimer = setTimeout(() => {
+        syncDebounceTimer = null
+        void pullThenPush()
+    }, SYNC_DEBOUNCE_MS)
+}
+
+// ---------------------------------------------------------------------------
+// Online-first pull
+//
+// Server is the source of truth. Local snapshot is only used for:
+//   1. Dirty-flag / conflict detection
+//   2. Offline fallback (hydrateFromDiskIfNeeded)
+//   3. Outbox temp-ID tracking
+// ---------------------------------------------------------------------------
 
 export async function pullRemoteFull(): Promise<boolean> {
     const key = getReplicaKeyOrNull()
     if (!key || !useAuthStore.getState().token) return false
+
     if (isRemoteSyncBlocked()) {
-        if (key) {
-            const pending = await listPending(key)
-            disarmPullingIndicator()
-            useSyncStore.getState().setSyncState({ pendingOutbox: pending.length })
-        }
+        const pending = await listPending(key)
+        disarmPullingIndicator()
+        useSyncStore.getState().setSyncState({ pendingOutbox: pending.length })
         return false
     }
+
     useSyncStore.getState().setSyncState({ lastError: null })
     armPullingIndicator()
-    try {
-        await ensureReplicaLoaded()
-        const mem = snap.getMemorySnapshot()
-        if (!mem) await snap.loadSnapshotForReplica(key)
-        const m = snap.getMemorySnapshot()!
-        const app = useAppStore.getState()
-        if (app.activeWorkspaceId != null) {
-            snap.setWorkspaceSlice(app.activeWorkspaceId, app.collections)
-        }
-        snap.setEnvironmentsLocal(app.environments)
 
+    try {
+        // Ensure snapshot is loaded for dirty-tracking / outbox ops
+        await ensureReplicaLoaded()
+        const m = snap.getMemorySnapshot() ?? (await snap.loadSnapshotForReplica(key))
+
+        // ── 1. Fetch workspaces ──────────────────────────────────────────────
+        console.log('[sync] pullRemoteFull: fetching workspaces...')
         const wsRes = await apiClient.get<{ data: Workspace[] }>('/workspaces')
-        let remoteWs = wsRes.data?.data ?? []
+        let remoteWs: Workspace[] = wsRes.data?.data ?? []
+        console.log('[sync] pullRemoteFull: remote workspaces =', remoteWs.map(w => `${w.id}:${w.name}`))
+
+        // Bootstrap: create default workspace only once per replica (guard against spam)
         if (remoteWs.length === 0) {
+            if (hasBootstrappedWorkspace(key)) {
+                // Already attempted once — don't create another. Bail and retry next cycle.
+                disarmPullingIndicator()
+                return false
+            }
+            markBootstrappedWorkspace(key)
             const cre = await apiClient.post<{ data: Workspace }>('/workspaces', { name: 'Default' })
             remoteWs = [cre.data.data]
+        } else {
+            // Server has at least one workspace, reset bootstrap guard so an intentional
+            // "delete all workspaces" state can be recovered in a future session.
+            clearBootstrappedWorkspace(key)
         }
 
-        const workspaces = mergeWorkspaces(remoteWs, m)
-        snap.setWorkspacesLocal(workspaces)
-
+        const remoteWsIds = new Set(remoteWs.map((w) => w.id))
         let savedWid: number | null = null
         try {
-            const raw = localStorage.getItem('postwoman_workspace_id')
+            const raw = localStorage.getItem('zreq_workspace_id')
             if (raw) savedWid = parseInt(raw, 10)
-        } catch {
-            /* ignore */
-        }
-        const wid = remoteWs.some((w) => w.id === savedWid) ? savedWid! : remoteWs[0].id
+        } catch { /* ignore */ }
 
-        snap.setActiveWorkspaceIdLocal(wid)
+        // ── 2. Select active workspace ────────────────────────────────────────
+        //   1st: localStorage id if still on server (user's last explicit choice)
+        //   2nd: snapshot active id if still on server
+        //   3rd: first workspace returned by server (oldest by createdAt)
+        const wid =
+            (savedWid != null && remoteWsIds.has(savedWid) ? savedWid : null) ??
+            (m.activeWorkspaceId != null && remoteWsIds.has(m.activeWorkspaceId) ? m.activeWorkspaceId : null) ??
+            remoteWs[0]!.id
 
-        const colRes = await apiClient.get<{ data: Collection[] }>('/collections', { params: { workspaceId: wid } })
-        const remoteCols = colRes.data?.data ?? []
-        const pendingColDeletes = await pendingCollectionDeletesForWorkspace(key, wid)
+        try { localStorage.setItem('zreq_workspace_id', String(wid)) } catch { /* ignore */ }
 
-        for (const r of remoteCols) {
-            if (pendingColDeletes.has(r.id)) continue
-            const meta = m.metaCollection[r.id]
-            if (meta?.dirty) {
-                const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
-                const localList = m.collectionsByWorkspaceId[String(wid)] ?? []
-                const localCol = localList.find((c) => c.id === r.id)
-                if (r.updatedAt !== base) {
-                    if (collectionContentMatchesServer(localCol, r)) {
-                        snap.applyServerCollection(wid, r, { overwriteLocal: true })
-                    } else {
-                        addConflict({
-                            kind: 'collection',
-                            entityId: r.id,
-                            workspaceId: wid,
-                            local: localCol ?? null,
-                            server: r,
-                        })
-                    }
-                    continue
-                }
-                // Server revision unchanged: diff is only unpushed local edits — not a merge conflict.
-                continue
-            }
-            snap.applyServerCollection(wid, r, { overwriteLocal: true })
-        }
+        // ── 3. Fetch collections for every workspace (so switching workspace isn't empty)
+        const colResults = await Promise.all(
+            remoteWs.map((w) =>
+                apiClient.get<{ data: Collection[] }>('/collections', { params: { workspaceId: w.id } })
+            )
+        )
 
+        // ── 4. Fetch environments ────────────────────────────────────────────
         const envRes = await apiClient.get<{ data: Environment[] }>('/environments')
-        const remoteEnv = envRes.data?.data ?? []
-        const pendingEnvDeletes = await pendingEnvironmentDeletes(key)
-        const nextEnvs: Environment[] = []
+        const remoteEnv: Environment[] = envRes.data?.data ?? []
 
-        for (const r of remoteEnv) {
-            if (pendingEnvDeletes.has(r.id)) continue
-            const meta = m.metaEnv[r.id]
-            if (meta?.dirty) {
-                const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
-                const local =
-                    app.environments.find((e) => e.id === r.id) ?? m.environments.find((e) => e.id === r.id)
-                if (r.updatedAt !== base) {
-                    if (environmentContentMatchesServer(local, r)) {
-                        nextEnvs.push(r)
-                        m.metaEnv[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
-                    } else {
-                        addConflict({
-                            kind: 'environment',
-                            entityId: r.id,
-                            local: local ?? null,
-                            server: r,
-                        })
-                        nextEnvs.push(local ?? r)
-                    }
-                    continue
-                }
-                nextEnvs.push(local ?? r)
-                continue
+        // ── 5. Merge collections + environments ───────────────────────────────
+        // Online-first: server data is ALWAYS applied to snapshot/UI.
+        // Conflicts are only raised when there is an active outbox op (user was
+        // editing offline) AND the server version is newer than when the edit started.
+        // A stale dirty flag from a crashed previous session must never hide data.
+        const allPendingOps = await listPending(key)
+
+        // Build sets of pending-writes by entity id for fast lookup
+        const pendingColPatchIds = new Set<number>()
+        const pendingEnvPatchIds = new Set<number>()
+        const colDelByWs = new Map<number, Set<number>>()
+        const pendingEnvDelIds = new Set<number>()
+        for (const o of allPendingOps) {
+            if (o.type === 'collection_patch') pendingColPatchIds.add(o.collectionId)
+            if (o.type === 'environment_patch') pendingEnvPatchIds.add(o.environmentId)
+            if (o.type === 'collection_delete') {
+                let s = colDelByWs.get(o.workspaceId)
+                if (!s) { s = new Set(); colDelByWs.set(o.workspaceId, s) }
+                s.add(o.collectionId)
             }
+            if (o.type === 'environment_delete') pendingEnvDelIds.add(o.environmentId)
+        }
+
+        const mergeRemoteCols = async (workspaceId: number, remoteCols: Collection[]) => {
+            const pendingDeletes = colDelByWs.get(workspaceId) ?? new Set<number>()
+            for (const r of remoteCols) {
+                // Server still has this row → stale delete op, remove it
+                if (pendingDeletes.has(r.id)) {
+                    await removePendingCollectionDeletesFor(key, workspaceId, r.id)
+                }
+
+                // Always apply server version to snapshot (online-first)
+                const meta = m.metaCollection[r.id]
+                const hasPendingPatch = pendingColPatchIds.has(r.id)
+
+                if (hasPendingPatch && meta?.dirty) {
+                    // Real conflict: user has unsent edits AND server moved on
+                    const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
+                    if (r.updatedAt !== base) {
+                        const localList = m.collectionsByWorkspaceId[String(workspaceId)] ?? []
+                        const localCol = localList.find((c) => c.id === r.id)
+                        if (!collectionContentMatchesServer(localCol, r)) {
+                            addConflict({
+                                kind: 'collection',
+                                entityId: r.id,
+                                workspaceId,
+                                local: localCol ?? null,
+                                server: r,
+                            })
+                        }
+                    }
+                }
+
+                // Always write the server version regardless of conflict
+                snap.applyServerCollection(workspaceId, r, { overwriteLocal: true })
+                m.metaCollection[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
+            }
+        }
+
+        for (let i = 0; i < remoteWs.length; i++) {
+            await mergeRemoteCols(remoteWs[i]!.id, colResults[i]?.data?.data ?? [])
+        }
+
+        const nextEnvs: Environment[] = []
+        for (const r of remoteEnv) {
+            // Server still has this row → stale delete op, remove it
+            if (pendingEnvDelIds.has(r.id)) {
+                await removePendingEnvironmentDeletesFor(key, r.id)
+            }
+
+            const meta = m.metaEnv[r.id]
+            const hasPendingPatch = pendingEnvPatchIds.has(r.id)
+
+            if (hasPendingPatch && meta?.dirty) {
+                const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
+                if (r.updatedAt !== base) {
+                    const local = useAppStore.getState().environments.find((e) => e.id === r.id) ??
+                        m.environments.find((e) => e.id === r.id)
+                    if (!environmentContentMatchesServer(local, r)) {
+                        addConflict({ kind: 'environment', entityId: r.id, local: local ?? null, server: r })
+                    }
+                }
+            }
+
+            // Always use server version
             nextEnvs.push(r)
             m.metaEnv[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
         }
 
-        for (const w of workspaces) {
+        // ── 6. Update workspace meta ─────────────────────────────────────────
+        for (const w of remoteWs) {
             if (!m.metaWorkspace[w.id]) {
                 m.metaWorkspace[w.id] = { serverUpdatedAt: w.updatedAt, dirty: false }
             }
         }
-        for (const c of remoteCols) {
-            if (pendingColDeletes.has(c.id)) continue
-            if (!m.metaCollection[c.id]?.dirty) {
-                m.metaCollection[c.id] = { serverUpdatedAt: c.updatedAt, dirty: false }
-            }
-        }
 
-        m.workspaces = workspaces
+        // ── 7. Commit snapshot & apply to UI ─────────────────────────────────
+        // Use structuredClone so snapshot arrays are decoupled from Immer store
+        // (Immer freezes state objects; sharing refs causes "readonly" errors).
+        m.workspaces = structuredClone(remoteWs)
         m.activeWorkspaceId = wid
-        m.environments = nextEnvs
+        m.environments = structuredClone(nextEnvs)
         m.lastSyncedAt = Date.now()
         snap.replaceMemorySnapshot(m)
 
-        app.applyRemotePullBundle({
-            workspaces,
+        useAppStore.getState().applyRemotePullBundle({
+            workspaces: remoteWs,
             activeWorkspaceId: wid,
             collections: snap.getWorkspaceSlice(wid),
             environments: nextEnvs,
         })
+
         await snap.persistSnapshotNow()
 
         const pending = await listPending(key)
@@ -279,13 +364,16 @@ export async function pullRemoteFull(): Promise<boolean> {
         })
         return true
     } catch (e) {
+        console.error('[sync] pullRemoteFull ERROR:', e)
         disarmPullingIndicator()
-        useSyncStore.getState().setSyncState({
-            lastError: formatRequestError(e),
-        })
+        useSyncStore.getState().setSyncState({ lastError: formatRequestError(e) })
         return false
     }
 }
+
+// ---------------------------------------------------------------------------
+// Outbox push
+// ---------------------------------------------------------------------------
 
 function parseStale409(err: unknown): unknown | null {
     const ax = err as { response?: { status?: number; data?: unknown } }
@@ -305,9 +393,7 @@ function parseStale409(err: unknown): unknown | null {
         try {
             const inner = JSON.parse(msg) as { code?: string; data?: unknown }
             if (inner?.code === 'STALE_VERSION' && inner.data != null) return inner.data
-        } catch {
-            /* ignore */
-        }
+        } catch { /* ignore */ }
     }
     return null
 }
@@ -315,17 +401,12 @@ function parseStale409(err: unknown): unknown | null {
 async function squashTempCollectionPatches(replicaKey: string, tempId: number) {
     const ops = await listPending(replicaKey)
     const toRemove = ops.filter(
-        (o) =>
-            (o.type === 'collection_patch' || o.type === 'collection_delete') && o.collectionId === tempId
+        (o) => (o.type === 'collection_patch' || o.type === 'collection_delete') && o.collectionId === tempId
     )
     for (const o of toRemove) await removeOp(o.id)
 }
 
-async function maybeEnqueueInitialCollectionPatch(
-    replicaKey: string,
-    created: Collection,
-    workspaceId: number
-) {
+async function maybeEnqueueInitialCollectionPatch(replicaKey: string, created: Collection, workspaceId: number) {
     const live = useAppStore.getState().collections.find((c) => c.id === created.id)
     if (!live) return
     const itemsSame = JSON.stringify(live.items ?? []) === JSON.stringify(created.items ?? [])
@@ -334,92 +415,34 @@ async function maybeEnqueueInitialCollectionPatch(
     const body: Record<string, unknown> = {}
     if (!nameSame) body.name = live.name
     if (!itemsSame) body.items = live.items
-    await enqueueOp({
-        type: 'collection_patch',
-        replicaKey,
-        collectionId: created.id,
-        workspaceId,
-        body,
-        expectedUpdatedAt: created.updatedAt,
-    })
-}
-
-export async function pushOutbox(): Promise<void> {
-    const key = getReplicaKeyOrNull()
-    if (!key || !useAuthStore.getState().token) return
-    if (isRemoteSyncBlocked()) {
-        const pending = await listPending(key)
-        useSyncStore.getState().setSyncState({ pendingOutbox: pending.length, pushing: false })
-        return
-    }
-    await ensureReplicaLoaded()
-    const ops = await listPending(key)
-    useSyncStore.getState().setSyncState({ pendingOutbox: ops.length, pushing: ops.length > 0 })
-    for (const op of ops) {
-        try {
-            await processOneOp(op)
-            await removeOp(op.id)
-        } catch (e) {
-            const stale = parseStale409(e)
-            if (stale != null) {
-                await handleStale409(op, stale)
-            } else {
-                useSyncStore.getState().setSyncState({
-                    lastError: formatRequestError(e),
-                })
-                break
-            }
-        }
-    }
-    const rest = await listPending(key)
-    useSyncStore.getState().setSyncState({ pendingOutbox: rest.length, pushing: false })
-}
-
-async function runPullThenPushOnce(): Promise<void> {
-    if (isRemoteSyncBlocked()) return
-    await pullRemoteFull()
-    await pushOutbox()
-}
-
-/** Pull server state first, then flush outbox so push does not race ahead of pull and miss conflict detection. */
-export function pullThenPush(): Promise<void> {
-    const p = pullPushChain.then(() =>
-        runPullThenPushOnce().catch(() => {
-            /* errors already recorded on sync store */
-        })
-    )
-    pullPushChain = p.catch(() => {})
-    return p
+    await enqueueOp({ type: 'collection_patch', replicaKey, collectionId: created.id, workspaceId, body, expectedUpdatedAt: created.updatedAt })
 }
 
 async function handleStale409(op: OutboxOp, serverEntity: unknown) {
     if (op.type === 'collection_patch') {
         const srv = serverEntity as Collection
-        const list = snap.getWorkspaceSlice(op.workspaceId)
         addConflict({
             kind: 'collection',
             entityId: op.collectionId,
             workspaceId: op.workspaceId,
-            local: list.find((c) => c.id === op.collectionId),
+            local: snap.getWorkspaceSlice(op.workspaceId).find((c) => c.id === op.collectionId),
             server: srv,
             outboxOpId: op.id,
         })
     } else if (op.type === 'workspace_patch') {
-        const srv = serverEntity as Workspace
         addConflict({
             kind: 'workspace',
             entityId: op.workspaceId,
             local: useAppStore.getState().workspaces.find((w) => w.id === op.workspaceId),
-            server: srv,
+            server: serverEntity as Workspace,
             outboxOpId: op.id,
         })
     } else if (op.type === 'environment_patch') {
-        const srv = serverEntity as Environment
         addConflict({
             kind: 'environment',
             entityId: op.environmentId,
             local: useAppStore.getState().environments.find((x) => x.id === op.environmentId),
-            server: srv,
+            server: serverEntity as Environment,
             outboxOpId: op.id,
         })
     }
@@ -429,10 +452,9 @@ async function processOneOp(op: OutboxOp) {
     if (op.type === 'collection_patch') {
         const mem = snap.getMemorySnapshot()
         const meta = mem?.metaCollection[op.collectionId]
-        const live =
-            useAppStore.getState().activeWorkspaceId === op.workspaceId
-                ? useAppStore.getState().collections.find((c) => c.id === op.collectionId)
-                : undefined
+        const live = useAppStore.getState().activeWorkspaceId === op.workspaceId
+            ? useAppStore.getState().collections.find((c) => c.id === op.collectionId)
+            : undefined
         const exp = op.expectedUpdatedAt ?? meta?.baseServerUpdatedAt ?? meta?.serverUpdatedAt ?? live?.updatedAt
         const res = await apiClient.patch<{ data: Collection }>(`/collections/${op.collectionId}`, {
             ...op.body,
@@ -445,19 +467,36 @@ async function processOneOp(op: OutboxOp) {
             useAppStore.getState().updateCollection(op.collectionId, c)
         }
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'collection_create') {
-        const res = await apiClient.post<{ data: Collection }>('/collections', op.body)
+        // Resolve workspaceId: outbox op may reference a temp/stale ID.
+        // Always validate against the current server workspace list in the snapshot.
+        const mem = snap.getMemorySnapshot()
+        const serverWsIds = new Set((mem?.workspaces ?? []).map((w) => w.id).filter((id) => id > 0))
+        const isValid = (id: number) => id > 0 && serverWsIds.has(id)
+
+        let wsId = op.workspaceId
+        if (!isValid(wsId)) {
+            wsId =
+                (mem?.activeWorkspaceId && isValid(mem.activeWorkspaceId) ? mem.activeWorkspaceId : null) ??
+                useAppStore.getState().workspaces.find((w) => isValid(w.id))?.id ??
+                0
+            if (!wsId) return // no valid workspace yet — retry on next sync
+        }
+
+        const res = await apiClient.post<{ data: Collection }>('/collections', { ...op.body, workspaceId: wsId })
         const c = res.data.data
         await squashTempCollectionPatches(op.replicaKey, op.tempId)
         useAppStore.getState().replaceCollection(op.tempId, c)
-        snap.setWorkspaceSlice(op.workspaceId, useAppStore.getState().collections)
-        const mem = snap.getMemorySnapshot()
-        if (mem) {
-            delete mem.metaCollection[op.tempId]
-            mem.metaCollection[c.id] = { serverUpdatedAt: c.updatedAt, dirty: false }
+        snap.setWorkspaceSlice(wsId, useAppStore.getState().collections)
+        const memPost = snap.getMemorySnapshot()
+        if (memPost) {
+            delete memPost.metaCollection[op.tempId]
+            memPost.metaCollection[c.id] = { serverUpdatedAt: c.updatedAt, dirty: false }
         }
-        await maybeEnqueueInitialCollectionPatch(op.replicaKey, c, op.workspaceId)
+        await maybeEnqueueInitialCollectionPatch(op.replicaKey, c, wsId)
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'collection_delete') {
         if (op.collectionId < 0) {
             snap.removeCollectionLocal(op.workspaceId, op.collectionId)
@@ -479,16 +518,17 @@ async function processOneOp(op: OutboxOp) {
             useAppStore.getState().removeCollection(op.collectionId)
         }
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'workspace_patch') {
-        const memMeta = snap.getMemorySnapshot()
-        const meta = memMeta?.metaWorkspace[op.workspaceId]
+        const mem = snap.getMemorySnapshot()
+        const meta = mem?.metaWorkspace[op.workspaceId]
         const live = useAppStore.getState().workspaces.find((w) => w.id === op.workspaceId)
         const exp = op.expectedUpdatedAt ?? meta?.baseServerUpdatedAt ?? meta?.serverUpdatedAt ?? live?.updatedAt
         const res = await apiClient.patch<{ data: Workspace }>(`/workspaces/${op.workspaceId}`, {
             ...op.body,
             expectedUpdatedAt: exp,
         })
-        const w = res.data.data
+        const w = structuredClone(res.data.data)
         snap.clearDirtyMeta('workspace', op.workspaceId, w.updatedAt)
         const memWs = snap.getMemorySnapshot()
         if (memWs) {
@@ -497,18 +537,38 @@ async function processOneOp(op: OutboxOp) {
         }
         useAppStore.getState().updateWorkspace(op.workspaceId, w)
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'workspace_create') {
+        const inStore = useAppStore.getState().workspaces.some((w) => w.id === op.tempId)
+        const inMem = snap.getMemorySnapshot()?.workspaces.some((w) => w.id === op.tempId) ?? false
+        if (!inStore && !inMem) return
+
         const res = await apiClient.post<{ data: Workspace }>('/workspaces', op.body)
-        const w = res.data.data
-        useAppStore.getState().replaceWorkspace(op.tempId, w)
+        const w = structuredClone(res.data.data)
+
+        const app = useAppStore.getState()
+        const alreadyInStore = app.workspaces.some((x) => x.id === w.id)
+        if (alreadyInStore) {
+            // Real workspace already in store (from pull) — just drop the temp entry
+            app.removeWorkspace(op.tempId as number)
+            if (app.activeWorkspaceId === op.tempId) {
+                app.setActiveWorkspaceId(w.id)
+                try { localStorage.setItem('zreq_workspace_id', String(w.id)) } catch { /* ignore */ }
+            }
+        } else {
+            app.replaceWorkspace(op.tempId as number, w)
+        }
+
         const mem = snap.getMemorySnapshot()
         if (mem) {
             delete mem.metaWorkspace[op.tempId]
             mem.metaWorkspace[w.id] = { serverUpdatedAt: w.updatedAt, dirty: false }
             const idx = mem.workspaces.findIndex((x) => x.id === op.tempId)
             if (idx !== -1) mem.workspaces[idx] = w
+            else if (!mem.workspaces.some((x) => x.id === w.id)) mem.workspaces.push(w)
         }
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'workspace_delete') {
         if (op.workspaceId < 0) {
             useAppStore.getState().removeWorkspace(op.workspaceId)
@@ -534,9 +594,10 @@ async function processOneOp(op: OutboxOp) {
             delete mem.collectionsByWorkspaceId[String(op.workspaceId)]
         }
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'environment_patch') {
-        const memMeta = snap.getMemorySnapshot()
-        const meta = memMeta?.metaEnv[op.environmentId]
+        const mem = snap.getMemorySnapshot()
+        const meta = mem?.metaEnv[op.environmentId]
         const live = useAppStore.getState().environments.find((e) => e.id === op.environmentId)
         const exp = op.expectedUpdatedAt ?? meta?.baseServerUpdatedAt ?? meta?.serverUpdatedAt ?? live?.updatedAt
         const res = await apiClient.patch<{ data: Environment }>(`/environments/${op.environmentId}`, {
@@ -552,18 +613,34 @@ async function processOneOp(op: OutboxOp) {
             if (idx !== -1) memEnv.environments[idx] = e
         }
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'environment_create') {
+        const inStore = useAppStore.getState().environments.some((e) => e.id === op.tempId)
+        const inMem = snap.getMemorySnapshot()?.environments.some((e) => e.id === op.tempId) ?? false
+        if (!inStore && !inMem) return
+
         const res = await apiClient.post<{ data: Environment }>('/environments', op.body)
         const e = res.data.data
-        useAppStore.getState().replaceEnvironment(op.tempId, e)
+        const app = useAppStore.getState()
+        const alreadyInStore = app.environments.some((x) => x.id === e.id)
+        if (alreadyInStore) {
+            app.removeEnvironment(op.tempId)
+            if (app.activeEnvironmentId === op.tempId) {
+                app.setActiveEnvironmentId(e.id)
+            }
+        } else {
+            app.replaceEnvironment(op.tempId, e)
+        }
         const mem = snap.getMemorySnapshot()
         if (mem) {
             delete mem.metaEnv[op.tempId]
             mem.metaEnv[e.id] = { serverUpdatedAt: e.updatedAt, dirty: false }
             const idx = mem.environments.findIndex((x) => x.id === op.tempId)
             if (idx !== -1) mem.environments[idx] = e
+            else if (!mem.environments.some((x) => x.id === e.id)) mem.environments.push(e)
         }
         await snap.persistSnapshotNow()
+
     } else if (op.type === 'environment_delete') {
         if (op.environmentId < 0) {
             useAppStore.getState().removeEnvironment(op.environmentId)
@@ -590,13 +667,85 @@ async function processOneOp(op: OutboxOp) {
     }
 }
 
+export async function pushOutbox(): Promise<void> {
+    const key = getReplicaKeyOrNull()
+    if (!key || !useAuthStore.getState().token) return
+    if (isRemoteSyncBlocked()) {
+        const pending = await listPending(key)
+        useSyncStore.getState().setSyncState({ pendingOutbox: pending.length, pushing: false })
+        return
+    }
+    await ensureReplicaLoaded()
+    const ops = await listPending(key)
+    useSyncStore.getState().setSyncState({ pendingOutbox: ops.length, pushing: ops.length > 0 })
+    for (const op of ops) {
+        try {
+            await processOneOp(op)
+            await removeOp(op.id)
+        } catch (e) {
+            const stale = parseStale409(e)
+            if (stale != null) {
+                await handleStale409(op, stale)
+                await removeOp(op.id)
+            } else if (isPermanentOutboxError(e)) {
+                // Permanent API errors should not block the rest of the queue.
+                await removeOp(op.id)
+                useSyncStore.getState().setSyncState({ lastError: formatRequestError(e) })
+            } else {
+                useSyncStore.getState().setSyncState({ lastError: formatRequestError(e) })
+                break
+            }
+        }
+    }
+    const rest = await listPending(key)
+    useSyncStore.getState().setSyncState({ pendingOutbox: rest.length, pushing: false })
+}
+
+async function runPullThenPushOnce(): Promise<void> {
+    if (isRemoteSyncBlocked()) return
+    await pullRemoteFull()
+    await pushOutbox()
+}
+
+export function pullThenPush(): Promise<void> {
+    const p = pullPushChain.then(() =>
+        runPullThenPushOnce().catch(() => { /* errors recorded on sync store */ })
+    )
+    pullPushChain = p.catch(() => {})
+    return p
+}
+
+// ---------------------------------------------------------------------------
+// Startup hydration (offline fallback)
+//
+// Only shows cached data when the app is offline or the initial pull
+// hasn't completed yet. Once pullRemoteFull succeeds, server data takes over.
+// ---------------------------------------------------------------------------
+
 export function hydrateFromMemorySnapshot() {
     const mem = snap.getMemorySnapshot()
     if (!mem) return
     useAppStore.getState().setWorkspaces(mem.workspaces)
-    if (mem.activeWorkspaceId != null) {
-        useAppStore.getState().setActiveWorkspaceId(mem.activeWorkspaceId)
-        useAppStore.getState().setCollections(mem.collectionsByWorkspaceId[String(mem.activeWorkspaceId)] ?? [])
+    if (mem.workspaces.length > 0) {
+        const wsIds = new Set(mem.workspaces.map((w) => w.id))
+        let savedWid: number | null = null
+        try {
+            const raw = localStorage.getItem('zreq_workspace_id')
+            if (raw) savedWid = parseInt(raw, 10)
+        } catch { /* ignore */ }
+        const validSavedWid = savedWid != null && wsIds.has(savedWid) ? savedWid : null
+        if (savedWid != null && validSavedWid == null) {
+            // localStorage points to a deleted workspace — clear it so pull can reset it cleanly
+            try { localStorage.removeItem('zreq_workspace_id') } catch { /* ignore */ }
+        }
+        const wid =
+            validSavedWid ??
+            (mem.activeWorkspaceId != null && wsIds.has(mem.activeWorkspaceId) ? mem.activeWorkspaceId : null) ??
+            mem.workspaces[0]?.id ?? null
+        if (wid != null) {
+            useAppStore.getState().setActiveWorkspaceId(wid)
+            useAppStore.getState().setCollections(mem.collectionsByWorkspaceId[String(wid)] ?? [])
+        }
     }
     useAppStore.getState().setEnvironments(mem.environments)
 }
@@ -604,11 +753,19 @@ export function hydrateFromMemorySnapshot() {
 export async function hydrateFromDiskIfNeeded(): Promise<boolean> {
     const key = getReplicaKeyOrNull()
     if (!key) return false
+
+    // Skip if a successful remote pull has already hydrated the store
+    if (useSyncStore.getState().lastSyncedAt != null) {
+        console.log('[sync] hydrateFromDiskIfNeeded: skipped (pull already ran)')
+        return false
+    }
+
     await snap.loadSnapshotForReplica(key)
     const mem = snap.getMemorySnapshot()
     if (!mem || (mem.workspaces.length === 0 && Object.keys(mem.collectionsByWorkspaceId).length === 0)) {
         return false
     }
+    console.log('[sync] hydrateFromDiskIfNeeded: hydrating from disk snapshot')
     hydrateFromMemorySnapshot()
     const pending = await listPending(key)
     useSyncStore.getState().setSyncState({ pendingOutbox: pending.length })

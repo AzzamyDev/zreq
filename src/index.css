@@ -149,10 +149,10 @@
 }
 
 /*
- * CodeMirror tooltips use `#postwoman-cm-tooltip-host` (fixed 0×0, pointer-events: none).
+ * CodeMirror tooltips use `#zreq-cm-tooltip-host` (fixed 0×0, pointer-events: none).
  * Re-enable hits on tooltip UI; host stays out of document flow so the app shell height stays stable.
  */
-#postwoman-cm-tooltip-host .cm-tooltip {
+#zreq-cm-tooltip-host .cm-tooltip {
     pointer-events: auto;
 }
 

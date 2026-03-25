@@ -221,7 +221,44 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
         }
     } else if (bodyType === 'form-data') {
         if (req.body?.content) {
-            body = req.body.content
+            try {
+                const rows = JSON.parse(req.body.content) as unknown
+                if (Array.isArray(rows)) {
+                    const resolvedRows = rows
+                        .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+                        .map((row) => {
+                            const valueType = row.valueType === 'file' ? 'file' : 'text'
+                            return {
+                                ...row,
+                                valueType,
+                                key: resolveEnvVars(String(row.key ?? ''), vars),
+                                value: valueType === 'text' ? resolveEnvVars(String(row.value ?? ''), vars) : '',
+                                fileName:
+                                    valueType === 'file'
+                                        ? resolveEnvVars(String(row.fileName ?? ''), vars)
+                                        : undefined,
+                                fileParts:
+                                    valueType === 'file' && Array.isArray(row.fileParts)
+                                        ? row.fileParts
+                                            .filter(
+                                                (part): part is Record<string, unknown> =>
+                                                    typeof part === 'object' && part !== null,
+                                            )
+                                            .map((part) => ({
+                                                name: resolveEnvVars(String(part.name ?? ''), vars),
+                                                mimeType: String(part.mimeType ?? ''),
+                                                base64: String(part.base64 ?? ''),
+                                            }))
+                                        : undefined,
+                            }
+                        })
+                    body = JSON.stringify(resolvedRows)
+                } else {
+                    body = req.body.content
+                }
+            } catch {
+                body = req.body.content
+            }
         }
     }
 

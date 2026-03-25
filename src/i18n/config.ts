@@ -3,7 +3,7 @@ import { initReactI18next } from 'react-i18next'
 import en from '@/locales/en.json'
 import id from '@/locales/id.json'
 
-export const LOCALE_STORAGE_KEY = 'postwoman_locale'
+export const LOCALE_STORAGE_KEY = 'zreq_locale'
 
 const supported = new Set(['en', 'id'])
 

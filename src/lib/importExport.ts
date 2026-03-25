@@ -75,7 +75,7 @@ function importPostmanBody(req: any): RequestBody {
 }
 
 export function exportCollection(collection: Collection): string {
-    return JSON.stringify({ zreq: true, postwoman: true, version: 1, collection }, null, 2)
+    return JSON.stringify({ zreq: true, zreq: true, version: 1, collection }, null, 2)
 }
 
 export function importCollection(
@@ -83,7 +83,7 @@ export function importCollection(
 ): Omit<Collection, 'id' | 'userId' | 'workspaceId' | 'createdAt' | 'updatedAt'> {
     const data = JSON.parse(jsonStr)
     // ZReq / legacy zreq format and Postman v2.1
-    if (data.zreq || data.postwoman) {
+    if (data.zreq || data.zreq) {
         return {
             name: data.collection.name,
             items: reassignIds(data.collection.items || []),

@@ -14,7 +14,7 @@ import type {
     Workspace,
 } from '../types'
 
-const ENV_ID_KEY = 'postwoman_environment_id'
+const ENV_ID_KEY = 'zreq_environment_id'
 
 const readStoredEnvironmentId = (): number | null | undefined => {
     try {
@@ -36,7 +36,7 @@ const writeStoredEnvironmentId = (id: number | null) => {
     }
 }
 
-const SIDEBAR_EXPAND_KEY = 'postwoman_sidebar_expand'
+const SIDEBAR_EXPAND_KEY = 'zreq_sidebar_expand'
 
 const readSidebarExpanded = (): Record<string, boolean> => {
     try {
@@ -197,7 +197,7 @@ export const useAppStore = create<AppState>()(
                 s.activeWorkspaceId = id
                 if (id != null) {
                     try {
-                        localStorage.setItem('postwoman_workspace_id', String(id))
+                        localStorage.setItem('zreq_workspace_id', String(id))
                     } catch {
                         /* ignore */
                     }
@@ -260,7 +260,7 @@ export const useAppStore = create<AppState>()(
                 s.workspaces[idx] = ws
                 if (s.activeWorkspaceId === oldId) s.activeWorkspaceId = ws.id
                 try {
-                    localStorage.setItem('postwoman_workspace_id', String(ws.id))
+                    localStorage.setItem('zreq_workspace_id', String(ws.id))
                 } catch {
                     /* ignore */
                 }
@@ -641,8 +641,12 @@ export const useAppStore = create<AppState>()(
                 s.activeWorkspaceId = p.activeWorkspaceId
                 s.collections = p.collections
                 s.environments = p.environments
+                if (s.activeEnvironmentId != null && !p.environments.some((e) => e.id === s.activeEnvironmentId)) {
+                    s.activeEnvironmentId = null
+                    writeStoredEnvironmentId(null)
+                }
                 try {
-                    localStorage.setItem('postwoman_workspace_id', String(p.activeWorkspaceId))
+                    localStorage.setItem('zreq_workspace_id', String(p.activeWorkspaceId))
                 } catch {
                     /* ignore */
                 }
@@ -651,7 +655,7 @@ export const useAppStore = create<AppState>()(
         resetRemoteSessionState: () =>
             set((s) => {
                 try {
-                    localStorage.removeItem('postwoman_workspace_id')
+                    localStorage.removeItem('zreq_workspace_id')
                 } catch {
                     /* ignore */
                 }

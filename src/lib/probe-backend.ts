@@ -10,7 +10,7 @@ export type BackendValidationFailure =
 export type BackendValidationResult = { ok: true; baseUrl: string } | BackendValidationFailure
 
 /** Confirms the URL serves this app’s API via GET /health (zreq-api or legacy zreq-api). */
-export async function validatePostwomanBackend(baseUrlRaw: string): Promise<BackendValidationResult> {
+export async function validatezreqBackend(baseUrlRaw: string): Promise<BackendValidationResult> {
     const baseUrl = normalizeBaseUrl(baseUrlRaw)
     if (!baseUrl) return { ok: false, code: 'invalid_url' }
 
@@ -19,7 +19,11 @@ export async function validatePostwomanBackend(baseUrlRaw: string): Promise<Back
     try {
         const res = await fetch(`${baseUrl}/health`, {
             method: 'GET',
-            headers: { Accept: 'application/json' },
+            headers: {
+                Accept: 'application/json',
+                // Required for ngrok free domains to bypass browser warning interstitial.
+                'ngrok-skip-browser-warning': '1',
+            },
             signal: ctrl.signal,
         })
         if (!res.ok) return { ok: false, code: 'unreachable' }
@@ -43,6 +47,6 @@ export async function validatePostwomanBackend(baseUrlRaw: string): Promise<Back
 
 /** Used by onboarding “Test connection” — same as /health validation */
 export async function probeBackendReachable(baseUrl: string): Promise<boolean> {
-    const r = await validatePostwomanBackend(baseUrl)
+    const r = await validatezreqBackend(baseUrl)
     return r.ok
 }

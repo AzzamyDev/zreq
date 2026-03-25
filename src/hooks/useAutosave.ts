@@ -4,7 +4,7 @@ import { useCollection } from './useCollection'
 
 function readAutosaveEnabled(): boolean {
     try {
-        return JSON.parse(localStorage.getItem('postwoman_autosave') ?? 'null') === true
+        return JSON.parse(localStorage.getItem('zreq_autosave') ?? 'null') === true
     } catch {
         return false
     }

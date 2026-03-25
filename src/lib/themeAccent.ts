@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'postwoman_accent'
+const STORAGE_KEY = 'zreq_accent'
 
 const vars = ['--primary', '--ring', '--sidebar-primary', '--sidebar-ring', '--chart-5'] as const
 

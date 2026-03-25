@@ -229,7 +229,7 @@ const appJsHighlight = HighlightStyle.define(
 /** JavaScript syntax (pre/post request scripts). */
 export const appJavaScriptSyntaxHighlight = syntaxHighlighting(appJsHighlight)
 
-const CM_TOOLTIP_HOST_ID = 'postwoman-cm-tooltip-host'
+const CM_TOOLTIP_HOST_ID = 'zreq-cm-tooltip-host'
 
 /**
  * CodeMirror's `tooltips({ parent })` appends a `position: relative` wrapper to `parent`.

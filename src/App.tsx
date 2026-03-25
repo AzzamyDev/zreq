@@ -22,7 +22,7 @@ import {
 import AppFooter from '@/components/layout/AppFooter'
 import ConflictDialog from '@/components/sync/ConflictDialog'
 
-const SIDEBAR_LAYOUT_KEY = 'postwoman_sidebar_layout'
+const SIDEBAR_LAYOUT_KEY = 'zreq_sidebar_layout'
 
 function readSidebarLayout(): Layout | undefined {
     try {
@@ -75,8 +75,8 @@ function AppShell() {
                 useSyncStore.getState().setInstanceReachable(false)
                 return
             }
-            const { validatePostwomanBackend } = await import('@/lib/probe-backend')
-            const r = await validatePostwomanBackend(baseUrl)
+            const { validatezreqBackend } = await import('@/lib/probe-backend')
+            const r = await validatezreqBackend(baseUrl)
             useSyncStore.getState().setInstanceReachable(r.ok)
             if (r.ok) {
                 void pullThenPush()
@@ -111,6 +111,8 @@ function AppShell() {
         prevWsRef.current = activeWorkspaceId
         if (prev == null) {
             void ensureReplicaLoaded().then(() => {
+                // Avoid clobbering collections after pull: snapshot slice may still be stale briefly
+                if (useAppStore.getState().collections.length > 0) return
                 useAppStore.getState().setCollections(snap.getWorkspaceSlice(activeWorkspaceId))
             })
             return

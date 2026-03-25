@@ -4,8 +4,8 @@ import { Loader2, Radio } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { probeBackendReachable, validatePostwomanBackend } from '@/lib/probe-backend'
-import { normalizeBaseUrl, useInstanceStore } from '@/store/instanceStore'
+import { probeBackendReachable, validatezreqBackend } from '@/lib/probe-backend'
+import { DEFAULT_FALLBACK, normalizeBaseUrl, useInstanceStore } from '@/store/instanceStore'
 import AuthShell from './AuthShell'
 
 export default function InstanceOnboarding() {
@@ -13,8 +13,7 @@ export default function InstanceOnboarding() {
     const complete = useInstanceStore((s) => s.completeInstanceOnboarding)
     const skipDefaults = useInstanceStore((s) => s.skipInstanceOnboardingWithDefaults)
 
-    const defaultUrl =
-        normalizeBaseUrl((import.meta.env.VITE_API_URL as string) || '') || 'http://localhost:3001'
+    const defaultUrl = DEFAULT_FALLBACK
 
     const [name, setName] = useState('')
     const [url, setUrl] = useState(defaultUrl)
@@ -53,7 +52,7 @@ export default function InstanceOnboarding() {
         e.preventDefault()
         setUrlErr('')
         setSubmitBusy(true)
-        const v = await validatePostwomanBackend(url)
+        const v = await validatezreqBackend(url)
         if (!v.ok) {
             setUrlErr(
                 t(
