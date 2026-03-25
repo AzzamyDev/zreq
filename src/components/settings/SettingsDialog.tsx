@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Settings, Palette, Info, Server, KeyRound, X } from 'lucide-react'
 import { setThemeAccent } from '@/lib/themeAccent'
@@ -9,6 +9,23 @@ import { Input } from '../ui/input'
 import { useInstanceStore } from '@/store/instanceStore'
 import { applyInstanceSwitch } from '@/lib/apply-instance-switch'
 import { validatezreqBackend } from '@/lib/probe-backend'
+import { MCP_AGENT_PRESETS, parseRedirectUrisField } from '@/lib/mcp-oauth-redirects'
+import {
+    createMcpOAuthClient,
+    deleteMcpOAuthClient,
+    listMcpOAuthClients,
+    rotateMcpOAuthClientSecret,
+    updateMcpOAuthClient,
+    type McpOAuthClientRow
+} from '@/lib/mcp-oauth-clients-api'
+import { useAuthStore } from '@/store/authStore'
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog'
 
 function useSettings() {
     const get = (key: string, fallback: any) => {
@@ -33,10 +50,6 @@ const ACCENT_PRESETS = [
 ]
 
 type Section = 'general' | 'instance' | 'mcp' | 'themes' | 'about'
-type McpRegisteredClient = {
-    client_id: string
-    client_secret?: string
-}
 
 interface SettingsDialogProps {
     open: boolean
@@ -62,17 +75,126 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const [qaErr, setQaErr] = useState('')
     const [qaBusy, setQaBusy] = useState(false)
     const mcpBaseUrl = activeMcpBaseUrl
-    const [mcpClientName, setMcpClientName] = useState('ZReq Claude Connector')
-    const [mcpRedirectUri, setMcpRedirectUri] = useState('https://claude.ai/api/mcp/auth_callback')
-    const [mcpAuthMethod, setMcpAuthMethod] = useState<'none' | 'client_secret_post' | 'client_secret_basic'>(
-        'client_secret_post'
+    const authToken = useAuthStore((s) => s.token)
+    const [mcpClients, setMcpClients] = useState<McpOAuthClientRow[]>([])
+    const [mcpListBusy, setMcpListBusy] = useState(false)
+    const [mcpListErr, setMcpListErr] = useState('')
+    const [mcpFormOpen, setMcpFormOpen] = useState(false)
+    const [mcpEditingId, setMcpEditingId] = useState<number | null>(null)
+    const [formPurpose, setFormPurpose] = useState('')
+    const [formClientName, setFormClientName] = useState('')
+    const [formRedirectText, setFormRedirectText] = useState('')
+    const [formAuthMethod, setFormAuthMethod] = useState<
+        'none' | 'client_secret_post' | 'client_secret_basic'
+    >('client_secret_post')
+    const [mcpFormBusy, setMcpFormBusy] = useState(false)
+    const [mcpFormErr, setMcpFormErr] = useState('')
+    const [mcpLastSecret, setMcpLastSecret] = useState<{ client_id: string; client_secret: string } | null>(
+        null
     )
-    const [mcpBusy, setMcpBusy] = useState(false)
-    const [mcpErr, setMcpErr] = useState('')
-    const [mcpHint, setMcpHint] = useState('')
-    const [mcpRegistered, setMcpRegistered] = useState<McpRegisteredClient | null>(
-        () => get('mcpOAuthRegisteredClient', null) as McpRegisteredClient | null
-    )
+    const [mcpPendingDeleteId, setMcpPendingDeleteId] = useState<number | null>(null)
+
+    useEffect(() => {
+        if (!open || section !== 'mcp' || !authToken) return
+        let cancelled = false
+        ;(async () => {
+            setMcpListBusy(true)
+            setMcpListErr('')
+            try {
+                const rows = await listMcpOAuthClients()
+                if (!cancelled) setMcpClients(rows)
+            } catch {
+                if (!cancelled) setMcpListErr(t('settings.mcpErrors.listFailed'))
+            } finally {
+                if (!cancelled) setMcpListBusy(false)
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [open, section, authToken, t])
+
+    const openMcpCreate = () => {
+        setMcpEditingId(null)
+        setFormPurpose('')
+        setFormClientName('')
+        setFormRedirectText('')
+        setFormAuthMethod('client_secret_post')
+        setMcpFormErr('')
+        setMcpFormOpen(true)
+    }
+
+    const openMcpEdit = (row: McpOAuthClientRow) => {
+        setMcpEditingId(row.id)
+        setFormPurpose(row.purpose ?? '')
+        setFormClientName(row.client_name)
+        setFormRedirectText(row.redirect_uris.join('\n'))
+        setFormAuthMethod(row.token_endpoint_auth_method as typeof formAuthMethod)
+        setMcpFormErr('')
+        setMcpFormOpen(true)
+    }
+
+    const submitMcpForm = async () => {
+        setMcpFormErr('')
+        const redirect_uris = parseRedirectUrisField(formRedirectText)
+        if (!formClientName.trim()) {
+            setMcpFormErr(t('settings.mcpErrors.clientNameRequired'))
+            return
+        }
+        if (redirect_uris.length === 0) {
+            setMcpFormErr(t('settings.mcpErrors.redirectUriRequired'))
+            return
+        }
+        setMcpFormBusy(true)
+        try {
+            if (mcpEditingId != null) {
+                await updateMcpOAuthClient(mcpEditingId, {
+                    purpose: formPurpose.trim() || null,
+                    client_name: formClientName.trim(),
+                    redirect_uris,
+                    token_endpoint_auth_method: formAuthMethod
+                })
+            } else {
+                const created = await createMcpOAuthClient({
+                    purpose: formPurpose.trim() || undefined,
+                    client_name: formClientName.trim(),
+                    redirect_uris,
+                    token_endpoint_auth_method: formAuthMethod
+                })
+                setMcpLastSecret({ client_id: created.client_id, client_secret: created.client_secret })
+            }
+            const rows = await listMcpOAuthClients()
+            setMcpClients(rows)
+            setMcpFormOpen(false)
+        } catch (e) {
+            setMcpFormErr(e instanceof Error ? e.message : t('settings.mcpErrors.saveFailed'))
+        } finally {
+            setMcpFormBusy(false)
+        }
+    }
+
+    const onDeleteMcpClient = async (id: number) => {
+        if (mcpPendingDeleteId !== id) {
+            setMcpPendingDeleteId(id)
+            return
+        }
+        setMcpPendingDeleteId(null)
+        try {
+            await deleteMcpOAuthClient(id)
+            setMcpClients(await listMcpOAuthClients())
+        } catch {
+            setMcpListErr(t('settings.mcpErrors.deleteFailed'))
+        }
+    }
+
+    const onRotateMcpSecret = async (id: number) => {
+        try {
+            const out = await rotateMcpOAuthClientSecret(id)
+            setMcpLastSecret(out)
+        } catch {
+            setMcpListErr(t('settings.mcpErrors.rotateFailed'))
+        }
+    }
 
     if (!open) return null
 
@@ -120,73 +242,6 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         setQaUrl('')
         applyInstanceSwitch(r.id)
         setQaBusy(false)
-    }
-
-    const cacheKey = JSON.stringify({
-        base: mcpBaseUrl.trim().replace(/\/+$/, ''),
-        clientName: mcpClientName.trim(),
-        redirectUri: mcpRedirectUri.trim(),
-        authMethod: mcpAuthMethod
-    })
-
-    const registerMcpClient = async (forceRegenerate = false) => {
-        setMcpErr('')
-        setMcpHint('')
-        if (!mcpBaseUrl.trim()) {
-            setMcpErr(t('settings.mcpErrors.baseUrlRequired'))
-            return
-        }
-        if (!mcpClientName.trim()) {
-            setMcpErr(t('settings.mcpErrors.clientNameRequired'))
-            return
-        }
-        if (!mcpRedirectUri.trim()) {
-            setMcpErr(t('settings.mcpErrors.redirectUriRequired'))
-            return
-        }
-        const saved = get('mcpOAuthRegistrationCache', {}) as Record<string, McpRegisteredClient>
-        if (!forceRegenerate && saved[cacheKey]) {
-            setMcpRegistered(saved[cacheKey])
-            set('mcpOAuthRegisteredClient', saved[cacheKey])
-            setMcpHint(t('settings.mcpHints.usingSaved'))
-            return
-        }
-        setMcpBusy(true)
-        try {
-            const base = mcpBaseUrl.replace(/\/+$/, '')
-            const res = await fetch(`${base}/mcp/oauth/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    client_name: mcpClientName.trim(),
-                    redirect_uris: [mcpRedirectUri.trim()],
-                    token_endpoint_auth_method: mcpAuthMethod
-                })
-            })
-            const json = await res.json()
-            if (!res.ok) {
-                throw new Error(json?.message || t('settings.mcpErrors.registerFailed'))
-            }
-            setMcpRegistered({
-                client_id: String(json?.client_id || ''),
-                client_secret:
-                    typeof json?.client_secret === 'string' ? json.client_secret : undefined
-            })
-            const out = {
-                client_id: String(json?.client_id || ''),
-                client_secret: typeof json?.client_secret === 'string' ? json.client_secret : undefined
-            }
-            set('mcpOAuthRegisteredClient', out)
-            set('mcpOAuthRegistrationCache', {
-                ...saved,
-                [cacheKey]: out
-            })
-            setMcpHint(t('settings.mcpHints.saved'))
-        } catch (error) {
-            setMcpErr(error instanceof Error ? error.message : t('settings.mcpErrors.registerFailed'))
-        } finally {
-            setMcpBusy(false)
-        }
     }
 
     const normalizedMcpBase = mcpBaseUrl.trim().replace(/\/+$/, '')
@@ -418,22 +473,19 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     {section === 'mcp' && (
                         <div className="space-y-8">
                             <h2 className="text-xl font-semibold">{t('settings.mcpTitle')}</h2>
-                            <p className="text-sm text-muted-foreground -mt-4">
-                                {t('settings.mcpSubtitle')}
-                            </p>
+                            <p className="text-sm text-muted-foreground -mt-4">{t('settings.mcpSubtitle')}</p>
 
                             <div className="space-y-4 border-t border-border pt-6">
-                                <p className="text-sm font-medium">{t('settings.mcpGeneratorTitle')}</p>
-                                <p className="text-xs text-muted-foreground">
-                                    {t('settings.mcpGeneratorHint')}
-                                </p>
+                                <p className="text-sm font-medium">{t('settings.mcpClientsTitle')}</p>
+                                <p className="text-xs text-muted-foreground">{t('settings.mcpClientsHint')}</p>
+
                                 <div className="grid max-w-xl gap-3">
                                     <div className="grid gap-1">
                                         <label className="text-muted-foreground text-xs">{t('settings.mcpBaseUrl')}</label>
                                         <Input
                                             value={mcpBaseUrl}
                                             readOnly
-                                            placeholder="https://your-ngrok-domain.ngrok-free.app"
+                                            placeholder="https://your-backend.example"
                                         />
                                         <p className="text-[11px] text-muted-foreground">
                                             {t('settings.mcpBaseUrlHint')}{' '}
@@ -445,116 +497,153 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                             <p className="text-muted-foreground font-medium">{t('settings.mcpDerivedUrls')}</p>
                                             <p>
                                                 <span className="text-muted-foreground">{t('settings.mcpConnectorUrl')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.mcp}</span>
-                                            </p>
-                                            <p>
-                                                <span className="text-muted-foreground">{t('settings.mcpOauthRegister')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.register}</span>
+                                                <span className="font-mono break-all">{mcpEndpoints.mcp}</span>
                                             </p>
                                             <p>
                                                 <span className="text-muted-foreground">{t('settings.mcpOauthAuthorize')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.authorize}</span>
+                                                <span className="font-mono break-all">{mcpEndpoints.authorize}</span>
                                             </p>
                                             <p>
                                                 <span className="text-muted-foreground">{t('settings.mcpOauthToken')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.token}</span>
-                                            </p>
-                                            <p>
-                                                <span className="text-muted-foreground">{t('settings.mcpOauthCallback')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.callback}</span>
+                                                <span className="font-mono break-all">{mcpEndpoints.token}</span>
                                             </p>
                                             <p>
                                                 <span className="text-muted-foreground">{t('settings.mcpOauthLocalLogin')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.localLogin}</span>
-                                            </p>
-                                            <p>
-                                                <span className="text-muted-foreground">{t('settings.mcpWellKnownAuth')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.wellKnownAuthz}</span>
-                                            </p>
-                                            <p>
-                                                <span className="text-muted-foreground">{t('settings.mcpWellKnownResource')}</span>{' '}
-                                                <span className="font-mono">{mcpEndpoints.wellKnownResource}</span>
+                                                <span className="font-mono break-all">{mcpEndpoints.localLogin}</span>
                                             </p>
                                         </div>
                                     ) : null}
-                                    <div className="grid gap-1">
-                                        <label className="text-muted-foreground text-xs">{t('settings.mcpClientName')}</label>
-                                        <Input
-                                            value={mcpClientName}
-                                            onChange={(e) => setMcpClientName(e.target.value)}
-                                            placeholder="ZReq Claude Connector"
-                                        />
-                                    </div>
-                                    <div className="grid gap-1">
-                                        <label className="text-muted-foreground text-xs">{t('settings.mcpRedirectUri')}</label>
-                                        <Input
-                                            value={mcpRedirectUri}
-                                            onChange={(e) => setMcpRedirectUri(e.target.value)}
-                                            placeholder="https://claude.ai/api/mcp/auth_callback"
-                                        />
-                                    </div>
-                                    <div className="grid gap-1">
-                                        <label className="text-muted-foreground text-xs">
-                                            {t('settings.mcpTokenAuthMethod')}
-                                        </label>
-                                        <Select
-                                            value={mcpAuthMethod}
-                                            onValueChange={(v) =>
-                                                setMcpAuthMethod(
-                                                    v as
-                                                        | 'none'
-                                                        | 'client_secret_post'
-                                                        | 'client_secret_basic'
-                                                )
-                                            }
-                                        >
-                                            <SelectTrigger className="w-full">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="client_secret_post">
-                                                    {t('settings.mcpAuthMethodPost')}
-                                                </SelectItem>
-                                                <SelectItem value="client_secret_basic">
-                                                    client_secret_basic
-                                                </SelectItem>
-                                                <SelectItem value="none">{t('settings.mcpAuthMethodNone')}</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    {mcpErr ? <p className="text-destructive text-xs">{mcpErr}</p> : null}
-                                    {mcpHint ? <p className="text-emerald-500 text-xs">{mcpHint}</p> : null}
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        className="w-fit"
-                                        disabled={mcpBusy}
-                                        onClick={() => void registerMcpClient()}
-                                    >
-                                        {mcpBusy ? t('settings.mcpGenerating') : t('settings.mcpGenerate')}
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        className="w-fit"
-                                        disabled={mcpBusy}
-                                        onClick={() => void registerMcpClient(true)}
-                                    >
-                                        {t('settings.mcpRegenerate')}
-                                    </Button>
-                                    {mcpRegistered ? (
-                                        <div className="rounded border border-border bg-muted/20 p-3 text-xs space-y-1">
-                                            <p>
-                                                <span className="text-muted-foreground">client_id:</span>{' '}
-                                                {mcpRegistered.client_id}
+
+                                    {!authToken ? (
+                                        <p className="text-amber-600 text-sm">{t('settings.mcpLoginRequired')}</p>
+                                    ) : null}
+
+                                    {mcpLastSecret ? (
+                                        <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs space-y-2">
+                                            <p className="font-medium text-amber-800 dark:text-amber-200">
+                                                {t('settings.mcpSecretOnce')}
                                             </p>
-                                            <p>
+                                            <p className="font-mono break-all">
+                                                <span className="text-muted-foreground">client_id:</span> {mcpLastSecret.client_id}
+                                            </p>
+                                            <p className="font-mono break-all">
                                                 <span className="text-muted-foreground">client_secret:</span>{' '}
-                                                {mcpRegistered.client_secret || '(none)'}
+                                                {mcpLastSecret.client_secret}
                                             </p>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => void navigator.clipboard.writeText(mcpLastSecret.client_secret)}
+                                            >
+                                                {t('settings.mcpCopySecret')}
+                                            </Button>
+                                            <Button type="button" size="sm" variant="ghost" onClick={() => setMcpLastSecret(null)}>
+                                                {t('settings.mcpDismissSecret')}
+                                            </Button>
                                         </div>
                                     ) : null}
+
+                                    {mcpListErr ? <p className="text-destructive text-xs">{mcpListErr}</p> : null}
+
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            disabled={!authToken || mcpListBusy}
+                                            onClick={() => openMcpCreate()}
+                                        >
+                                            {t('settings.mcpAddClient')}
+                                        </Button>
+                                    </div>
+
+                                    {authToken && mcpListBusy ? (
+                                        <p className="text-xs text-muted-foreground">{t('settings.mcpLoading')}</p>
+                                    ) : null}
+                                    {authToken && !mcpListBusy && mcpClients.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground">{t('settings.mcpNoClients')}</p>
+                                    ) : null}
+
+                                    {mcpClients.length > 0 ? (
+                                        <div className="rounded border border-border overflow-x-auto">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="bg-muted/40 border-b border-border">
+                                                    <tr>
+                                                        <th className="p-2 font-medium">{t('settings.mcpPurposeLabel')}</th>
+                                                        <th className="p-2 font-medium">{t('settings.mcpClientName')}</th>
+                                                        <th className="p-2 font-medium">client_id</th>
+                                                        <th className="p-2 font-medium w-[1%]">{t('settings.mcpActions')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {mcpClients.map((row) => (
+                                                        <tr key={row.id} className="border-b border-border/60">
+                                                            <td className="p-2 align-top">{row.purpose || '—'}</td>
+                                                            <td className="p-2 align-top">{row.client_name}</td>
+                                                            <td className="p-2 align-top font-mono break-all max-w-[200px]">
+                                                                {row.client_id}
+                                                            </td>
+                                                            <td className="p-2 align-top whitespace-nowrap space-x-1">
+                                                                <Button
+                                                                    type="button"
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-7 px-2"
+                                                                    onClick={() => openMcpEdit(row)}
+                                                                >
+                                                                    {t('settings.mcpEdit')}
+                                                                </Button>
+                                                                {row.token_endpoint_auth_method !== 'none' ? (
+                                                                    <Button
+                                                                        type="button"
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-7 px-2"
+                                                                        onClick={() => void onRotateMcpSecret(row.id)}
+                                                                    >
+                                                                        {t('settings.mcpRotateSecret')}
+                                                                    </Button>
+                                                                ) : null}
+                                                                {mcpPendingDeleteId === row.id ? (
+                                                                    <>
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="destructive"
+                                                                            className="h-7 px-2"
+                                                                            onClick={() => void onDeleteMcpClient(row.id)}
+                                                                        >
+                                                                            {t('settings.mcpDeleteConfirmBtn')}
+                                                                        </Button>
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-7 px-2"
+                                                                            onClick={() => setMcpPendingDeleteId(null)}
+                                                                        >
+                                                                            {t('settings.mcpCancel')}
+                                                                        </Button>
+                                                                    </>
+                                                                ) : (
+                                                                    <Button
+                                                                        type="button"
+                                                                        size="sm"
+                                                                        variant="destructive"
+                                                                        className="h-7 px-2"
+                                                                        onClick={() => void onDeleteMcpClient(row.id)}
+                                                                    >
+                                                                        {t('settings.mcpDelete')}
+                                                                    </Button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : null}
+
                                     <div className="rounded border border-border bg-muted/20 p-3 text-[11px] space-y-1.5">
                                         <p className="text-muted-foreground font-medium">{t('settings.mcpFlowTitle')}</p>
                                         <p>{t('settings.mcpFlow1')}</p>
@@ -564,6 +653,108 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                     </div>
                                 </div>
                             </div>
+
+                            <Dialog open={mcpFormOpen} onOpenChange={setMcpFormOpen}>
+                                <DialogContent className="sm:max-w-lg" showCloseButton>
+                                    <DialogHeader>
+                                        <DialogTitle>
+                                            {mcpEditingId != null
+                                                ? t('settings.mcpEditClientTitle')
+                                                : t('settings.mcpAddClientTitle')}
+                                        </DialogTitle>
+                                    </DialogHeader>
+                                    <div className="grid gap-3 py-2">
+                                        <p className="text-[11px] text-muted-foreground">{t('settings.mcpPresetsHint')}</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {MCP_AGENT_PRESETS.map((p) => (
+                                                <Button
+                                                    key={p.id}
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    className="h-7 text-xs"
+                                                    onClick={() => {
+                                                        setFormPurpose(p.purpose)
+                                                        setFormClientName(p.client_name)
+                                                        setFormRedirectText(p.redirect_uri)
+                                                    }}
+                                                >
+                                                    {p.purpose}
+                                                </Button>
+                                            ))}
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-muted-foreground text-xs">
+                                                {t('settings.mcpPurposeLabel')}
+                                            </label>
+                                            <Input
+                                                value={formPurpose}
+                                                onChange={(e) => setFormPurpose(e.target.value)}
+                                                placeholder={t('settings.mcpPurposePlaceholder')}
+                                            />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-muted-foreground text-xs">{t('settings.mcpClientName')}</label>
+                                            <Input
+                                                value={formClientName}
+                                                onChange={(e) => setFormClientName(e.target.value)}
+                                                placeholder="ZReq MCP — …"
+                                            />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-muted-foreground text-xs">
+                                                {t('settings.mcpRedirectUrisLabel')}
+                                            </label>
+                                            <textarea
+                                                className="flex min-h-[88px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                value={formRedirectText}
+                                                onChange={(e) => setFormRedirectText(e.target.value)}
+                                                placeholder={t('settings.mcpRedirectUrisPlaceholder')}
+                                                spellCheck={false}
+                                            />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-muted-foreground text-xs">
+                                                {t('settings.mcpTokenAuthMethod')}
+                                            </label>
+                                            <Select
+                                                value={formAuthMethod}
+                                                onValueChange={(v) =>
+                                                    setFormAuthMethod(
+                                                        v as 'none' | 'client_secret_post' | 'client_secret_basic'
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger className="w-full">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="client_secret_post">
+                                                        {t('settings.mcpAuthMethodPost')}
+                                                    </SelectItem>
+                                                    <SelectItem value="client_secret_basic">
+                                                        client_secret_basic
+                                                    </SelectItem>
+                                                    <SelectItem value="none">{t('settings.mcpAuthMethodNone')}</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        {mcpFormErr ? <p className="text-destructive text-xs">{mcpFormErr}</p> : null}
+                                    </div>
+                                    <DialogFooter className="border-0 bg-transparent sm:justify-end">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={() => setMcpFormOpen(false)}
+                                        >
+                                            {t('settings.mcpCancel')}
+                                        </Button>
+                                        <Button type="button" disabled={mcpFormBusy} onClick={() => void submitMcpForm()}>
+                                            {mcpFormBusy ? t('settings.mcpSaving') : t('settings.mcpSave')}
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
                         </div>
                     )}
 
