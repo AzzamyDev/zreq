@@ -5,7 +5,7 @@ export type BackendInstance = { id: string; name: string; baseUrl: string }
 
 const STORAGE_KEY = 'zreq_instances'
 
-export const DEFAULT_FALLBACK = 'http://localhost:3001'
+export const DEFAULT_FALLBACK = 'http://localhost:3500'
 
 export function normalizeBaseUrl(raw: string): string | null {
     const t = raw.trim()

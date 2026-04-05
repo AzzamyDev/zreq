@@ -2,7 +2,7 @@ import { useAppStore } from '@/store'
 import { useAuthStore } from '@/store/authStore'
 import type { Collection, Environment, Workspace } from '@/types'
 import * as snap from './snapshot-store'
-import { enqueueOp } from './outbox-ops'
+import { enqueueOp, listPending, removeOp } from './outbox-ops'
 import { getReplicaKeyOrNull, ensureReplicaLoaded, scheduleSync } from './sync-engine'
 import { useSyncStore } from '@/store/syncStore'
 
@@ -81,8 +81,12 @@ export async function writeCollectionPatch(collectionId: number, body: Record<st
     scheduleSync()
 }
 
-/** Optimistic collection (new or import) with optional tree `items`. */
-export async function createLocalCollection(name: string, items: unknown[] = []) {
+/** Optimistic collection (new or import) with optional tree `items` and collection-level settings. */
+export async function createLocalCollection(
+    name: string,
+    items: unknown[] = [],
+    extra?: { description?: string; auth?: unknown; variables?: unknown[] }
+) {
     const wid = useAppStore.getState().activeWorkspaceId
     const user = useAuthStore.getState().user
     if (wid == null || !user) return null
@@ -91,6 +95,9 @@ export async function createLocalCollection(name: string, items: unknown[] = [])
     const col: Collection = {
         id: tempId,
         name,
+        ...(extra?.description != null ? { description: extra.description } : {}),
+        ...(extra?.auth != null ? { auth: extra.auth as Collection['auth'] } : {}),
+        ...(extra?.variables != null ? { variables: extra.variables as Collection['variables'] } : {}),
         items: items as Collection['items'],
         userId: user.id,
         workspaceId: wid,
@@ -103,11 +110,11 @@ export async function createLocalCollection(name: string, items: unknown[] = [])
     snap.applyMemory((mem) => {
         mem.metaCollection[tempId] = { serverUpdatedAt: now, dirty: false }
     })
-    await writeCollectionCreate(tempId, { name, items, workspaceId: wid })
+    await writeCollectionCreate(tempId, { name, items, workspaceId: wid, ...extra })
     return col
 }
 
-export async function writeCollectionCreate(tempId: number, payload: { name: string; items: unknown[]; workspaceId: number }) {
+export async function writeCollectionCreate(tempId: number, payload: { name: string; items: unknown[]; workspaceId: number; description?: string; auth?: unknown; variables?: unknown[] }) {
     const key = getReplicaKeyOrNull()
     if (!key) return
     await ensureReplicaLoaded()
@@ -126,6 +133,21 @@ export async function writeCollectionDelete(collectionId: number, workspaceId: n
     const key = getReplicaKeyOrNull()
     if (!key) return
     await ensureReplicaLoaded()
+
+    // If deleting a temp (unsynced) collection, cancel the pending create op instead.
+    // This prevents the collection from ever reaching the server.
+    if (collectionId < 0) {
+        const pending = await listPending(key)
+        const createOp = pending.find(
+            (o) => o.type === 'collection_create' && (o as { tempId: number }).tempId === collectionId
+        )
+        if (createOp) {
+            await removeOp(createOp.id)
+            await bumpPending()
+            return
+        }
+    }
+
     await enqueueOp({
         type: 'collection_delete',
         replicaKey: key,

@@ -28,7 +28,8 @@ export default function Sidebar() {
             }
             const text = await file.text()
             const data = importCollection(text)
-            await createLocalCollection(data.name, data.items as unknown[])
+            const { name, items, ...extra } = data
+            await createLocalCollection(name, items as unknown[], extra)
         } catch (err) {
             console.error(err)
             const detail = isAxiosError(err)

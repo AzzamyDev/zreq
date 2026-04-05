@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
-import { Upload } from 'lucide-react'
+import { Upload, Download } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
@@ -12,7 +12,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { useAppStore } from '../../store'
 import { useEnvironment } from '../../hooks/useEnvironment'
-import { parsePostmanEnvironment } from '../../lib/postman-environment'
+import { importEnvironment, exportEnvironment } from '../../lib/importExport'
 import type { KV } from '../../types'
 
 interface EnvironmentManagerDialogProps {
@@ -40,10 +40,25 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
     const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const selectAllVarsRef = useRef<HTMLInputElement>(null)
     const draftRowRef = useRef({ key: '', value: '' })
+    // Tracks the name of the selected env so we can recover selection when
+    // tempId is replaced by the real server ID after sync.
+    const selectedEnvNameRef = useRef<string | null>(null)
 
     const [draftRow, setDraftRow] = useState({ key: '', value: '' })
 
     const selectedEnv = environments.find((e) => e.id === selectedId) ?? null
+
+    // When selectedId points to a tempId that no longer exists (replaced after sync),
+    // recover the selection by finding the env with the same name.
+    useEffect(() => {
+        if (selectedId === null) return
+        const found = environments.find((e) => e.id === selectedId)
+        if (!found && selectedEnvNameRef.current) {
+            const match = environments.find((e) => e.name === selectedEnvNameRef.current)
+            if (match) setSelectedId(match.id)
+        }
+        if (found) selectedEnvNameRef.current = found.name
+    }, [environments, selectedId])
 
     const clearSaveNoticeTimer = () => {
         if (saveNoticeTimerRef.current) {
@@ -221,13 +236,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         setIsImporting(true)
         try {
             const text = await file.text()
-            let parsed: unknown
-            try {
-                parsed = JSON.parse(text) as unknown
-            } catch {
-                throw new Error(t('environment.invalidJsonFile'))
-            }
-            const { name, variables } = parsePostmanEnvironment(parsed)
+            const { name, variables } = importEnvironment(text)
             const created = await createEnvironment(name, variables)
             if (!created) return
             setSelectedId(created.id)
@@ -239,6 +248,18 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
             setIsImporting(false)
             if (importInputRef.current) importInputRef.current.value = ''
         }
+    }
+
+    const handleExport = () => {
+        if (!selectedEnv) return
+        const json = exportEnvironment(selectedEnv)
+        const blob = new Blob([json], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${selectedEnv.name.replace(/[^a-z0-9_-]/gi, '_')}.json`
+        a.click()
+        URL.revokeObjectURL(url)
     }
 
     return (
@@ -295,7 +316,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                             <input
                                 ref={importInputRef}
                                 type="file"
-                                accept=".json,application/json"
+                                accept=".json,.env,application/json,text/plain"
                                 className="hidden"
                                 onChange={(e) => {
                                     const f = e.target.files?.[0]
@@ -309,10 +330,10 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                 className="h-6 w-full gap-1 text-xs"
                                 disabled={isImporting}
                                 onClick={() => importInputRef.current?.click()}
-                                title={t('environment.importPostmanTitle')}
+                                title={t('environment.importTitle')}
                             >
                                 <Upload className="size-3 shrink-0 opacity-70" aria-hidden />
-                                {isImporting ? t('common.importing') : t('environment.importPostman')}
+                                {isImporting ? t('common.importing') : t('environment.import')}
                             </Button>
                             {importError ? (
                                 <p className="text-[11px] leading-snug text-destructive">{importError}</p>
@@ -411,6 +432,14 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                     ) : (
                                         <>
                                             <span className="flex-1 text-xs font-medium">{selectedEnv.name}</span>
+                                            <button
+                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                onClick={handleExport}
+                                                title={t('environment.exportTitle')}
+                                            >
+                                                <Download className="inline size-3 mr-0.5" />
+                                                {t('common.export')}
+                                            </button>
                                             <button
                                                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                                                 onClick={() => setEditingName(true)}
