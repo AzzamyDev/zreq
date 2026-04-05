@@ -195,7 +195,37 @@ export async function pullRemoteFull(): Promise<boolean> {
             clearBootstrappedWorkspace(key)
         }
 
-        const remoteWsIds = new Set(remoteWs.map((w) => w.id))
+        const allPendingOps = await listPending(key)
+
+        // Pending workspace_create rows are not on the server yet; pull must not drop them
+        // (pull runs before push — otherwise workspace_create sees no temp id and the op is
+        // removed from the outbox without ever POSTing).
+        const pendingWorkspaceCreates = allPendingOps.filter((o) => o.type === 'workspace_create')
+        const mergedWorkspaces: Workspace[] = structuredClone(remoteWs)
+        const mergedWsIds = new Set(mergedWorkspaces.map((w) => w.id))
+        const prevSnapWorkspaces = m.workspaces
+        for (const o of pendingWorkspaceCreates) {
+            if (mergedWsIds.has(o.tempId)) continue
+            const local = prevSnapWorkspaces.find((w) => w.id === o.tempId)
+            if (local) {
+                mergedWorkspaces.push(structuredClone(local))
+                mergedWsIds.add(o.tempId)
+                continue
+            }
+            const u = useAuthStore.getState().user
+            if (u && o.body?.name) {
+                const now = new Date().toISOString()
+                mergedWorkspaces.push({
+                    id: o.tempId,
+                    name: o.body.name,
+                    userId: u.id,
+                    createdAt: now,
+                    updatedAt: now,
+                })
+                mergedWsIds.add(o.tempId)
+            }
+        }
+
         let savedWid: number | null = null
         try {
             const raw = localStorage.getItem('zreq_workspace_id')
@@ -203,12 +233,12 @@ export async function pullRemoteFull(): Promise<boolean> {
         } catch { /* ignore */ }
 
         // ── 2. Select active workspace ────────────────────────────────────────
-        //   1st: localStorage id if still on server (user's last explicit choice)
-        //   2nd: snapshot active id if still on server
-        //   3rd: first workspace returned by server (oldest by createdAt)
+        //   1st: localStorage id if present in merged list (server + pending-create temps)
+        //   2nd: snapshot active id if present in merged list
+        //   3rd: first server workspace (oldest by createdAt)
         const wid =
-            (savedWid != null && remoteWsIds.has(savedWid) ? savedWid : null) ??
-            (m.activeWorkspaceId != null && remoteWsIds.has(m.activeWorkspaceId) ? m.activeWorkspaceId : null) ??
+            (savedWid != null && mergedWsIds.has(savedWid) ? savedWid : null) ??
+            (m.activeWorkspaceId != null && mergedWsIds.has(m.activeWorkspaceId) ? m.activeWorkspaceId : null) ??
             remoteWs[0]!.id
 
         try { localStorage.setItem('zreq_workspace_id', String(wid)) } catch { /* ignore */ }
@@ -232,7 +262,6 @@ export async function pullRemoteFull(): Promise<boolean> {
         // Conflicts are only raised when there is an active outbox op (user was
         // editing offline) AND the server version is newer than when the edit started.
         // A stale dirty flag from a crashed previous session must never hide data.
-        const allPendingOps = await listPending(key)
 
         // Build sets of pending-writes by entity id for fast lookup
         const pendingColPatchIds = new Set<number>()
@@ -393,7 +422,7 @@ export async function pullRemoteFull(): Promise<boolean> {
         const nextEnvs = snap.getWorkspaceEnvSlice(wid)
 
         // ── 6. Update workspace meta ─────────────────────────────────────────
-        for (const w of remoteWs) {
+        for (const w of mergedWorkspaces) {
             if (!m.metaWorkspace[w.id]) {
                 m.metaWorkspace[w.id] = { serverUpdatedAt: w.updatedAt, dirty: false }
             }
@@ -402,13 +431,13 @@ export async function pullRemoteFull(): Promise<boolean> {
         // ── 7. Commit snapshot & apply to UI ─────────────────────────────────
         // Use structuredClone so snapshot arrays are decoupled from Immer store
         // (Immer freezes state objects; sharing refs causes "readonly" errors).
-        m.workspaces = structuredClone(remoteWs)
+        m.workspaces = structuredClone(mergedWorkspaces)
         m.activeWorkspaceId = wid
         m.lastSyncedAt = Date.now()
         snap.replaceMemorySnapshot(m)
 
         useAppStore.getState().applyRemotePullBundle({
-            workspaces: remoteWs,
+            workspaces: mergedWorkspaces,
             activeWorkspaceId: wid,
             collections: snap.getWorkspaceSlice(wid),
             environments: nextEnvs,
@@ -656,7 +685,21 @@ async function processOneOp(op: OutboxOp) {
     } else if (op.type === 'workspace_create') {
         const inStore = useAppStore.getState().workspaces.some((w) => w.id === op.tempId)
         const inMem = snap.getMemorySnapshot()?.workspaces.some((w) => w.id === op.tempId) ?? false
-        if (!inStore && !inMem) return
+        if (!inStore && !inMem) {
+            // Still create on server — otherwise push removes this op and the workspace is lost
+            // (e.g. pull/UI dropped the temp row before this run).
+            const res = await apiClient.post<{ data: Workspace }>('/workspaces', op.body)
+            const w = structuredClone(res.data.data)
+            const app = useAppStore.getState()
+            if (!app.workspaces.some((x) => x.id === w.id)) app.addWorkspace(w)
+            const mem = snap.getMemorySnapshot()
+            if (mem && !mem.workspaces.some((x) => x.id === w.id)) {
+                mem.workspaces.push(w)
+                mem.metaWorkspace[w.id] = { serverUpdatedAt: w.updatedAt, dirty: false }
+            }
+            await snap.persistSnapshotNow()
+            return
+        }
 
         const res = await apiClient.post<{ data: Workspace }>('/workspaces', op.body)
         const w = structuredClone(res.data.data)
