@@ -272,7 +272,7 @@ export function buildConflictDiffModel(c: ConflictEntry): ConflictDiffModel {
         scalarRows = scalarFieldDiffs(
             { ...l, variables: undefined, lastUpdatedBy: undefined } as Record<string, unknown>,
             { ...s, variables: undefined, lastUpdatedBy: undefined } as Record<string, unknown>,
-            ['name', 'id', 'userId', 'createdAt', 'updatedAt']
+            ['name', 'id', 'workspaceId', 'createdAt', 'updatedAt']
         )
         varRows = getVariableDiffs(l.variables, s.variables)
         const normL = normalizeEnvVarsForDiff(l.variables)

@@ -93,7 +93,7 @@ export type Environment = {
     id: number
     name: string
     variables: EnvVariable[]
-    userId: number
+    workspaceId: number
     createdAt: string
     updatedAt: string
     lastUpdatedBy?: ActorSummary

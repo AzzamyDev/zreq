@@ -18,20 +18,22 @@ export function useEnvironment() {
     ) => {
         const user = useAuthStore.getState().user
         if (!user) return
+        const wid = useAppStore.getState().activeWorkspaceId
+        if (wid == null) return
         const tempId = -Math.floor(Math.random() * 1e12 + Date.now())
         const now = new Date().toISOString()
         const env: Environment = {
             id: tempId,
             name,
             variables: variables ?? [],
-            userId: user.id,
+            workspaceId: wid,
             createdAt: now,
             updatedAt: now,
         }
         setEnvironments([...useAppStore.getState().environments, env])
         await ensureReplicaLoaded()
         snap.applyMemory((m) => {
-            m.environments = [...useAppStore.getState().environments]
+            m.environmentsByWorkspaceId[String(wid)] = structuredClone(useAppStore.getState().environments)
             m.metaEnv[tempId] = { serverUpdatedAt: now, dirty: false }
         })
         await snap.persistSnapshotNow()
@@ -50,11 +52,12 @@ export function useEnvironment() {
     }
 
     const deleteEnvironment = async (id: number) => {
+        const wid = useAppStore.getState().activeWorkspaceId
         removeEnvironment(id)
         await ensureReplicaLoaded()
         const mem = snap.getMemorySnapshot()
-        if (mem) {
-            mem.environments = useAppStore.getState().environments
+        if (mem && wid != null) {
+            mem.environmentsByWorkspaceId[String(wid)] = structuredClone(useAppStore.getState().environments)
             delete mem.metaEnv[id]
         }
         await snap.persistSnapshotNow()

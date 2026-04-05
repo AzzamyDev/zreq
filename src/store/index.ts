@@ -14,26 +14,94 @@ import type {
     Workspace,
 } from '../types'
 
-const ENV_ID_KEY = 'zreq_environment_id'
+const ENV_MAP_KEY = 'zreq_environment_by_workspace'
+const LEGACY_ENV_ID_KEY = 'zreq_environment_id'
 
-const readStoredEnvironmentId = (): number | null | undefined => {
+function readEnvIdMap(): Record<string, number | null> {
     try {
-        const raw = localStorage.getItem(ENV_ID_KEY)
-        if (raw === null) return undefined
-        if (raw === '') return null
-        const id = parseInt(raw, 10)
-        return Number.isNaN(id) ? undefined : id
+        const raw = localStorage.getItem(ENV_MAP_KEY)
+        if (!raw) return {}
+        const p = JSON.parse(raw) as unknown
+        if (!p || typeof p !== 'object') return {}
+        const out: Record<string, number | null> = {}
+        for (const [k, v] of Object.entries(p as Record<string, unknown>)) {
+            if (v === null) {
+                out[k] = null
+                continue
+            }
+            if (typeof v === 'number' && Number.isFinite(v)) {
+                out[k] = v
+                continue
+            }
+            if (typeof v === 'string' && v !== '') {
+                const n = parseInt(v, 10)
+                if (!Number.isNaN(n)) out[k] = n
+            }
+        }
+        return out
     } catch {
-        return undefined
+        return {}
     }
 }
 
-const writeStoredEnvironmentId = (id: number | null) => {
+function writeEnvIdMap(m: Record<string, number | null>) {
     try {
-        localStorage.setItem(ENV_ID_KEY, id === null ? '' : String(id))
+        localStorage.setItem(ENV_MAP_KEY, JSON.stringify(m))
     } catch {
         /* ignore */
     }
+}
+
+function setEnvIdForWorkspace(workspaceId: number, envId: number | null) {
+    const m = readEnvIdMap()
+    m[String(workspaceId)] = envId
+    writeEnvIdMap(m)
+}
+
+function migrateLegacyEnvironmentIdIfNeeded(activeWorkspaceId: number | null) {
+    if (activeWorkspaceId == null) return
+    try {
+        const legacy = localStorage.getItem(LEGACY_ENV_ID_KEY)
+        if (legacy === null) return
+        if (legacy === '') {
+            localStorage.removeItem(LEGACY_ENV_ID_KEY)
+            return
+        }
+        const id = parseInt(legacy, 10)
+        if (Number.isNaN(id)) {
+            localStorage.removeItem(LEGACY_ENV_ID_KEY)
+            return
+        }
+        const m = readEnvIdMap()
+        const k = String(activeWorkspaceId)
+        if (!(k in m)) {
+            m[k] = id
+            writeEnvIdMap(m)
+        }
+        localStorage.removeItem(LEGACY_ENV_ID_KEY)
+    } catch {
+        /* ignore */
+    }
+}
+
+function pickActiveEnvironmentId(
+    environments: Environment[],
+    workspaceId: number | null,
+    currentActive: number | null
+): number | null {
+    if (workspaceId == null) return null
+    migrateLegacyEnvironmentIdIfNeeded(workspaceId)
+    const m = readEnvIdMap()
+    const k = String(workspaceId)
+    if (k in m) {
+        const want = m[k]
+        if (want === null) return null
+        if (environments.some((e) => e.id === want)) return want
+        setEnvIdForWorkspace(workspaceId, null)
+        return null
+    }
+    if (currentActive != null && environments.some((e) => e.id === currentActive)) return currentActive
+    return null
 }
 
 const SIDEBAR_EXPAND_KEY = 'zreq_sidebar_expand'
@@ -273,7 +341,9 @@ export const useAppStore = create<AppState>()(
                 s.environments[idx] = env
                 if (s.activeEnvironmentId === oldId) {
                     s.activeEnvironmentId = env.id
-                    writeStoredEnvironmentId(env.id)
+                    if (s.activeWorkspaceId != null) {
+                        setEnvIdForWorkspace(s.activeWorkspaceId, env.id)
+                    }
                 }
             }),
 
@@ -545,17 +615,7 @@ export const useAppStore = create<AppState>()(
         setEnvironments: (e) =>
             set((s) => {
                 s.environments = e
-                const stored = readStoredEnvironmentId()
-                if (stored === undefined) return
-                if (stored === null) {
-                    s.activeEnvironmentId = null
-                    return
-                }
-                if (e.some((env) => env.id === stored)) s.activeEnvironmentId = stored
-                else {
-                    s.activeEnvironmentId = null
-                    writeStoredEnvironmentId(null)
-                }
+                s.activeEnvironmentId = pickActiveEnvironmentId(e, s.activeWorkspaceId, s.activeEnvironmentId)
             }),
         addEnvironment: (env) =>
             set((s) => {
@@ -571,13 +631,17 @@ export const useAppStore = create<AppState>()(
                 s.environments = s.environments.filter((e) => e.id !== id)
                 if (s.activeEnvironmentId === id) {
                     s.activeEnvironmentId = null
-                    writeStoredEnvironmentId(null)
+                    if (s.activeWorkspaceId != null) {
+                        setEnvIdForWorkspace(s.activeWorkspaceId, null)
+                    }
                 }
             }),
         setActiveEnvironmentId: (id) =>
             set((s) => {
                 s.activeEnvironmentId = id
-                writeStoredEnvironmentId(id)
+                if (s.activeWorkspaceId != null) {
+                    setEnvIdForWorkspace(s.activeWorkspaceId, id)
+                }
             }),
 
         selectedItemId: null,
@@ -637,14 +701,18 @@ export const useAppStore = create<AppState>()(
 
         applyRemotePullBundle: (p) =>
             set((s) => {
+                const oldWid = s.activeWorkspaceId
+                const oldEnvId = s.activeEnvironmentId
                 s.workspaces = p.workspaces
                 s.activeWorkspaceId = p.activeWorkspaceId
                 s.collections = p.collections
                 s.environments = p.environments
-                if (s.activeEnvironmentId != null && !p.environments.some((e) => e.id === s.activeEnvironmentId)) {
-                    s.activeEnvironmentId = null
-                    writeStoredEnvironmentId(null)
-                }
+                migrateLegacyEnvironmentIdIfNeeded(p.activeWorkspaceId)
+                s.activeEnvironmentId = pickActiveEnvironmentId(
+                    p.environments,
+                    p.activeWorkspaceId,
+                    oldWid === p.activeWorkspaceId ? oldEnvId : null
+                )
                 try {
                     localStorage.setItem('zreq_workspace_id', String(p.activeWorkspaceId))
                 } catch {
@@ -659,7 +727,16 @@ export const useAppStore = create<AppState>()(
                 } catch {
                     /* ignore */
                 }
-                writeStoredEnvironmentId(null)
+                try {
+                    localStorage.removeItem(ENV_MAP_KEY)
+                } catch {
+                    /* ignore */
+                }
+                try {
+                    localStorage.removeItem(LEGACY_ENV_ID_KEY)
+                } catch {
+                    /* ignore */
+                }
                 s.workspaces = []
                 s.activeWorkspaceId = null
                 s.collections = []

@@ -211,6 +211,8 @@ export async function writeWorkspaceDelete(workspaceId: number) {
 export async function writeEnvironmentPatch(environmentId: number, body: Record<string, unknown>) {
     const key = getReplicaKeyOrNull()
     if (!key) return
+    const wid = useAppStore.getState().activeWorkspaceId
+    if (wid == null) return
     await ensureReplicaLoaded()
     snap.applyMemory((mem) => {
         if (mem.metaEnv[environmentId]) return
@@ -221,11 +223,12 @@ export async function writeEnvironmentPatch(environmentId: number, body: Record<
     const exp = expectedEnv(environmentId) ?? erow?.updatedAt
     snap.markEnvDirty(environmentId)
     snap.applyMemory((mem) => {
-        mem.environments = structuredClone(useAppStore.getState().environments)
+        mem.environmentsByWorkspaceId[String(wid)] = structuredClone(useAppStore.getState().environments)
     })
     await enqueueOp({
         type: 'environment_patch',
         replicaKey: key,
+        workspaceId: wid,
         environmentId,
         body,
         expectedUpdatedAt: exp,
@@ -240,10 +243,13 @@ export async function writeEnvironmentCreate(
 ) {
     const key = getReplicaKeyOrNull()
     if (!key) return
+    const wid = useAppStore.getState().activeWorkspaceId
+    if (wid == null) return
     await ensureReplicaLoaded()
     await enqueueOp({
         type: 'environment_create',
         replicaKey: key,
+        workspaceId: wid,
         tempId,
         body,
     })
@@ -254,10 +260,13 @@ export async function writeEnvironmentCreate(
 export async function writeEnvironmentDelete(environmentId: number) {
     const key = getReplicaKeyOrNull()
     if (!key) return
+    const wid = useAppStore.getState().activeWorkspaceId
+    if (wid == null) return
     await ensureReplicaLoaded()
     await enqueueOp({
         type: 'environment_delete',
         replicaKey: key,
+        workspaceId: wid,
         environmentId,
     })
     await bumpPending()

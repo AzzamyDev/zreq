@@ -114,6 +114,7 @@ function AppShell() {
                 // Avoid clobbering collections after pull: snapshot slice may still be stale briefly
                 if (useAppStore.getState().collections.length > 0) return
                 useAppStore.getState().setCollections(snap.getWorkspaceSlice(activeWorkspaceId))
+                useAppStore.getState().setEnvironments(snap.getWorkspaceEnvSlice(activeWorkspaceId))
             })
             return
         }
@@ -121,9 +122,11 @@ function AppShell() {
         const prevStillExists = useAppStore.getState().workspaces.some((w) => w.id === prev)
         if (prevStillExists) {
             snap.setWorkspaceSlice(prev, useAppStore.getState().collections)
+            snap.setWorkspaceEnvSlice(prev, useAppStore.getState().environments)
         }
         void ensureReplicaLoaded().then(() => {
             useAppStore.getState().setCollections(snap.getWorkspaceSlice(activeWorkspaceId))
+            useAppStore.getState().setEnvironments(snap.getWorkspaceEnvSlice(activeWorkspaceId))
             if (!isRemoteSyncBlocked()) void pullThenPush()
         })
     }, [activeWorkspaceId])

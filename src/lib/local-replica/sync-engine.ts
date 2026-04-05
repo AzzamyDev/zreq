@@ -220,9 +220,12 @@ export async function pullRemoteFull(): Promise<boolean> {
             )
         )
 
-        // ── 4. Fetch environments ────────────────────────────────────────────
-        const envRes = await apiClient.get<{ data: Environment[] }>('/environments')
-        const remoteEnv: Environment[] = envRes.data?.data ?? []
+        // ── 4. Fetch environments per workspace ─────────────────────────────
+        const envResults = await Promise.all(
+            remoteWs.map((w) =>
+                apiClient.get<{ data: Environment[] }>('/environments', { params: { workspaceId: w.id } })
+            )
+        )
 
         // ── 5. Merge collections + environments ───────────────────────────────
         // Online-first: server data is ALWAYS applied to snapshot/UI.
@@ -234,15 +237,31 @@ export async function pullRemoteFull(): Promise<boolean> {
         // Build sets of pending-writes by entity id for fast lookup
         const pendingColPatchIds = new Set<number>()
         const pendingEnvPatchIds = new Set<number>()
-        const pendingEnvCreateTempIds = new Set<number>()
-        const pendingEnvPatchTempIds = new Set<number>()
+        const pendingEnvCreateByWs = new Map<number, Set<number>>()
+        const pendingEnvPatchTempByWs = new Map<number, Set<number>>()
         const colDelByWs = new Map<number, Set<number>>()
         const pendingEnvDelIds = new Set<number>()
         for (const o of allPendingOps) {
             if (o.type === 'collection_patch') pendingColPatchIds.add(o.collectionId)
             if (o.type === 'environment_patch') pendingEnvPatchIds.add(o.environmentId)
-            if (o.type === 'environment_create') pendingEnvCreateTempIds.add(o.tempId)
-            if (o.type === 'environment_patch' && o.environmentId < 0) pendingEnvPatchTempIds.add(o.environmentId)
+            if (o.type === 'environment_create') {
+                const wid = 'workspaceId' in o ? o.workspaceId : 0
+                let s = pendingEnvCreateByWs.get(wid)
+                if (!s) {
+                    s = new Set()
+                    pendingEnvCreateByWs.set(wid, s)
+                }
+                s.add(o.tempId)
+            }
+            if (o.type === 'environment_patch' && o.environmentId < 0) {
+                const wid = 'workspaceId' in o ? o.workspaceId : 0
+                let s = pendingEnvPatchTempByWs.get(wid)
+                if (!s) {
+                    s = new Set()
+                    pendingEnvPatchTempByWs.set(wid, s)
+                }
+                s.add(o.environmentId)
+            }
             if (o.type === 'collection_delete') {
                 let s = colDelByWs.get(o.workspaceId)
                 if (!s) { s = new Set(); colDelByWs.set(o.workspaceId, s) }
@@ -300,62 +319,78 @@ export async function pullRemoteFull(): Promise<boolean> {
             await mergeRemoteCols(remoteWs[i]!.id, colResults[i]?.data?.data ?? [])
         }
 
-        const nextEnvs: Environment[] = []
-        for (const r of remoteEnv) {
-            // Pending delete for this environment: skip restoring it from the server.
-            // The delete op will be sent in the push phase — don't let pull undo it.
-            if (pendingEnvDelIds.has(r.id)) {
-                continue
+        const mergeRemoteEnvs = (workspaceId: number, remoteEnv: Environment[]) => {
+            const key = String(workspaceId)
+            const nextEnvs: Environment[] = []
+            const pendingCreateTemp = pendingEnvCreateByWs.get(workspaceId) ?? new Set<number>()
+            const pendingPatchTemp = pendingEnvPatchTempByWs.get(workspaceId) ?? new Set<number>()
+            const liveActive = useAppStore.getState().activeWorkspaceId === workspaceId
+
+            for (const r of remoteEnv) {
+                if (pendingEnvDelIds.has(r.id)) continue
+
+                const meta = m.metaEnv[r.id]
+                const hasPendingPatch = pendingEnvPatchIds.has(r.id)
+
+                if (hasPendingPatch && meta?.dirty) {
+                    const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
+                    if (r.updatedAt !== base) {
+                        const localList = m.environmentsByWorkspaceId[key] ?? []
+                        const local =
+                            localList.find((e) => e.id === r.id) ??
+                            (liveActive ? useAppStore.getState().environments.find((e) => e.id === r.id) : undefined)
+                        if (!environmentContentMatchesServer(local, r)) {
+                            addConflict({
+                                kind: 'environment',
+                                entityId: r.id,
+                                workspaceId,
+                                local: local ?? null,
+                                server: r,
+                            })
+                        }
+                    } else {
+                        const localList = m.environmentsByWorkspaceId[key] ?? []
+                        const localEnv =
+                            localList.find((e) => e.id === r.id) ??
+                            (liveActive ? useAppStore.getState().environments.find((e) => e.id === r.id) : undefined)
+                        nextEnvs.push(localEnv ?? r)
+                        m.metaEnv[r.id] = {
+                            serverUpdatedAt: r.updatedAt,
+                            dirty: true,
+                            baseServerUpdatedAt: meta.baseServerUpdatedAt ?? meta.serverUpdatedAt,
+                        }
+                        continue
+                    }
+                }
+
+                nextEnvs.push(r)
+                m.metaEnv[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
             }
 
-            const meta = m.metaEnv[r.id]
-            const hasPendingPatch = pendingEnvPatchIds.has(r.id)
-
-            if (hasPendingPatch && meta?.dirty) {
-                const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
-                if (r.updatedAt !== base) {
-                    // Real conflict: server moved on while user was editing.
-                    const local = useAppStore.getState().environments.find((e) => e.id === r.id) ??
-                        m.environments.find((e) => e.id === r.id)
-                    if (!environmentContentMatchesServer(local, r)) {
-                        addConflict({ kind: 'environment', entityId: r.id, local: local ?? null, server: r })
-                    }
-                    // Fall through: apply server version
-                } else {
-                    // Server unchanged since edit started — keep local version.
-                    const localEnv = m.environments.find((e) => e.id === r.id) ??
-                        useAppStore.getState().environments.find((e) => e.id === r.id)
-                    nextEnvs.push(localEnv ?? r)
-                    m.metaEnv[r.id] = {
-                        serverUpdatedAt: r.updatedAt,
-                        dirty: true,
-                        baseServerUpdatedAt: meta.baseServerUpdatedAt ?? meta.serverUpdatedAt,
-                    }
-                    continue
+            const includedIds = new Set(nextEnvs.map((e) => e.id))
+            const pendingTempEnvIds = new Set<number>([...pendingCreateTemp, ...pendingPatchTemp])
+            for (const tempId of pendingTempEnvIds) {
+                if (pendingEnvDelIds.has(tempId)) continue
+                if (includedIds.has(tempId)) continue
+                const localList = m.environmentsByWorkspaceId[key] ?? []
+                const localEnv =
+                    localList.find((e) => e.id === tempId) ??
+                    (liveActive ? useAppStore.getState().environments.find((e) => e.id === tempId) : undefined)
+                if (!localEnv) continue
+                nextEnvs.push(localEnv)
+                if (!m.metaEnv[tempId]) {
+                    m.metaEnv[tempId] = { serverUpdatedAt: localEnv.updatedAt, dirty: true }
                 }
             }
 
-            nextEnvs.push(r)
-            m.metaEnv[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
+            m.environmentsByWorkspaceId[key] = structuredClone(nextEnvs)
         }
 
-        // Preserve pending temp environments (created/edited but not yet pushed to server).
-        // Without this, online-first pulls will drop temp envs before `pushOutbox()` runs,
-        // making `environment_create`/`environment_patch` ops no-op and causing perceived "reset".
-        const includedIds = new Set(nextEnvs.map((e) => e.id))
-        const pendingTempEnvIds = new Set<number>([...pendingEnvCreateTempIds, ...pendingEnvPatchTempIds])
-        for (const tempId of pendingTempEnvIds) {
-            if (pendingEnvDelIds.has(tempId)) continue
-            if (includedIds.has(tempId)) continue
-            const localEnv =
-                useAppStore.getState().environments.find((e) => e.id === tempId) ??
-                m.environments.find((e) => e.id === tempId)
-            if (!localEnv) continue
-            nextEnvs.push(localEnv)
-            if (!m.metaEnv[tempId]) {
-                m.metaEnv[tempId] = { serverUpdatedAt: localEnv.updatedAt, dirty: true }
-            }
+        for (let i = 0; i < remoteWs.length; i++) {
+            mergeRemoteEnvs(remoteWs[i]!.id, envResults[i]?.data?.data ?? [])
         }
+
+        const nextEnvs = snap.getWorkspaceEnvSlice(wid)
 
         // ── 6. Update workspace meta ─────────────────────────────────────────
         for (const w of remoteWs) {
@@ -369,7 +404,6 @@ export async function pullRemoteFull(): Promise<boolean> {
         // (Immer freezes state objects; sharing refs causes "readonly" errors).
         m.workspaces = structuredClone(remoteWs)
         m.activeWorkspaceId = wid
-        m.environments = structuredClone(nextEnvs)
         m.lastSyncedAt = Date.now()
         snap.replaceMemorySnapshot(m)
 
@@ -434,7 +468,12 @@ async function squashTempEnvironmentOps(replicaKey: string, tempId: number, real
             await enqueueOp({ ...o, id: undefined, environmentId: realId, replicaKey })
         } else if (o.type === 'environment_delete' && o.environmentId === tempId) {
             await removeOp(o.id)
-            await enqueueOp({ type: 'environment_delete', replicaKey, environmentId: realId })
+            await enqueueOp({
+                type: 'environment_delete',
+                replicaKey,
+                workspaceId: o.workspaceId,
+                environmentId: realId,
+            })
         }
     }
 }
@@ -490,10 +529,15 @@ async function handleStale409(op: OutboxOp, serverEntity: unknown) {
             outboxOpId: op.id,
         })
     } else if (op.type === 'environment_patch') {
+        const wid = op.workspaceId
+        const local =
+            snap.getWorkspaceEnvSlice(wid).find((x) => x.id === op.environmentId) ??
+            useAppStore.getState().environments.find((x) => x.id === op.environmentId)
         addConflict({
             kind: 'environment',
             entityId: op.environmentId,
-            local: useAppStore.getState().environments.find((x) => x.id === op.environmentId),
+            workspaceId: wid,
+            local: local ?? null,
             server: serverEntity as Environment,
             outboxOpId: op.id,
         })
@@ -648,6 +692,7 @@ async function processOneOp(op: OutboxOp) {
                 mem.workspaces = mem.workspaces.filter((x) => x.id !== op.workspaceId)
                 delete mem.metaWorkspace[op.workspaceId]
                 delete mem.collectionsByWorkspaceId[String(op.workspaceId)]
+                delete mem.environmentsByWorkspaceId[String(op.workspaceId)]
             }
             await snap.persistSnapshotNow()
             return
@@ -663,13 +708,23 @@ async function processOneOp(op: OutboxOp) {
             mem.workspaces = mem.workspaces.filter((x) => x.id !== op.workspaceId)
             delete mem.metaWorkspace[op.workspaceId]
             delete mem.collectionsByWorkspaceId[String(op.workspaceId)]
+            delete mem.environmentsByWorkspaceId[String(op.workspaceId)]
         }
         await snap.persistSnapshotNow()
 
     } else if (op.type === 'environment_patch') {
         const mem = snap.getMemorySnapshot()
+        const wid =
+            op.workspaceId ??
+            mem?.activeWorkspaceId ??
+            useAppStore.getState().activeWorkspaceId ??
+            0
+        if (!wid) throw new Error('environment_patch missing workspace')
         const meta = mem?.metaEnv[op.environmentId]
-        const live = useAppStore.getState().environments.find((e) => e.id === op.environmentId)
+        const live =
+            useAppStore.getState().activeWorkspaceId === wid
+                ? useAppStore.getState().environments.find((e) => e.id === op.environmentId)
+                : snap.getWorkspaceEnvSlice(wid).find((e) => e.id === op.environmentId)
         const exp = op.expectedUpdatedAt ?? meta?.baseServerUpdatedAt ?? meta?.serverUpdatedAt ?? live?.updatedAt
         const res = await apiClient.patch<{ data: Environment }>(`/environments/${op.environmentId}`, {
             ...op.body,
@@ -677,20 +732,29 @@ async function processOneOp(op: OutboxOp) {
         })
         const e = res.data.data
         snap.clearDirtyMeta('environment', op.environmentId, e.updatedAt)
-        useAppStore.getState().updateEnvironment(op.environmentId, e)
-        const memEnv = snap.getMemorySnapshot()
-        if (memEnv) {
-            const idx = memEnv.environments.findIndex((x) => x.id === e.id)
-            if (idx !== -1) memEnv.environments[idx] = e
+        snap.applyServerEnvironment(wid, e, { overwriteLocal: true })
+        if (useAppStore.getState().activeWorkspaceId === wid) {
+            useAppStore.getState().updateEnvironment(op.environmentId, e)
         }
         await snap.persistSnapshotNow()
 
     } else if (op.type === 'environment_create') {
+        const wid =
+            op.workspaceId ??
+            snap.getMemorySnapshot()?.activeWorkspaceId ??
+            useAppStore.getState().activeWorkspaceId ??
+            0
+        if (!wid) throw new Error('environment_create missing workspace')
         const inStore = useAppStore.getState().environments.some((e) => e.id === op.tempId)
-        const inMem = snap.getMemorySnapshot()?.environments.some((e) => e.id === op.tempId) ?? false
+        const inMem =
+            snap.getMemorySnapshot()?.environmentsByWorkspaceId[String(wid)]?.some((e) => e.id === op.tempId) ??
+            false
         if (!inStore && !inMem) return
 
-        const res = await apiClient.post<{ data: Environment }>('/environments', op.body)
+        const res = await apiClient.post<{ data: Environment }>('/environments', {
+            ...op.body,
+            workspaceId: wid,
+        })
         const e = res.data.data
         await squashTempEnvironmentOps(op.replicaKey, op.tempId, e.id)
         const app = useAppStore.getState()
@@ -707,19 +771,26 @@ async function processOneOp(op: OutboxOp) {
         if (mem) {
             delete mem.metaEnv[op.tempId]
             mem.metaEnv[e.id] = { serverUpdatedAt: e.updatedAt, dirty: false }
-            const idx = mem.environments.findIndex((x) => x.id === op.tempId)
-            if (idx !== -1) mem.environments[idx] = e
-            else if (!mem.environments.some((x) => x.id === e.id)) mem.environments.push(e)
+            const key = String(wid)
+            const list = mem.environmentsByWorkspaceId[key] ?? []
+            const idx = list.findIndex((x) => x.id === op.tempId)
+            if (idx !== -1) list[idx] = e
+            else if (!list.some((x) => x.id === e.id)) list.push(e)
+            mem.environmentsByWorkspaceId[key] = list
         }
         await snap.persistSnapshotNow()
 
     } else if (op.type === 'environment_delete') {
+        const wid =
+            op.workspaceId ??
+            snap.getMemorySnapshot()?.activeWorkspaceId ??
+            useAppStore.getState().activeWorkspaceId ??
+            0
         if (op.environmentId < 0) {
             useAppStore.getState().removeEnvironment(op.environmentId)
             const mem = snap.getMemorySnapshot()
-            if (mem) {
-                mem.environments = mem.environments.filter((x) => x.id !== op.environmentId)
-                delete mem.metaEnv[op.environmentId]
+            if (mem && wid) {
+                snap.removeEnvironmentLocal(wid, op.environmentId)
             }
             await snap.persistSnapshotNow()
             return
@@ -730,10 +801,9 @@ async function processOneOp(op: OutboxOp) {
             if (!isNotFound(e)) throw e
         }
         useAppStore.getState().removeEnvironment(op.environmentId)
-        const mem = snap.getMemorySnapshot()
-        if (mem) {
-            mem.environments = mem.environments.filter((x) => x.id !== op.environmentId)
-            delete mem.metaEnv[op.environmentId]
+        const memDel = snap.getMemorySnapshot()
+        if (memDel && wid) {
+            snap.removeEnvironmentLocal(wid, op.environmentId)
         }
         await snap.persistSnapshotNow()
     }
@@ -817,9 +887,13 @@ export function hydrateFromMemorySnapshot() {
         if (wid != null) {
             useAppStore.getState().setActiveWorkspaceId(wid)
             useAppStore.getState().setCollections(mem.collectionsByWorkspaceId[String(wid)] ?? [])
+            useAppStore.getState().setEnvironments(mem.environmentsByWorkspaceId[String(wid)] ?? [])
+        } else {
+            useAppStore.getState().setEnvironments([])
         }
+    } else {
+        useAppStore.getState().setEnvironments([])
     }
-    useAppStore.getState().setEnvironments(mem.environments)
 }
 
 export async function hydrateFromDiskIfNeeded(): Promise<boolean> {

@@ -12,7 +12,7 @@ export type ReplicaSnapshot = {
     workspaces: Workspace[]
     activeWorkspaceId: number | null
     collectionsByWorkspaceId: Record<string, Collection[]>
-    environments: Environment[]
+    environmentsByWorkspaceId: Record<string, Environment[]>
     metaCollection: Record<number, EntityMeta>
     metaWorkspace: Record<number, EntityMeta>
     metaEnv: Record<number, EntityMeta>
@@ -57,17 +57,20 @@ export type OutboxOp =
       })
     | (OutboxOpBase & {
           type: 'environment_patch'
+          workspaceId: number
           environmentId: number
           body: Record<string, unknown>
           expectedUpdatedAt?: string
       })
     | (OutboxOpBase & {
           type: 'environment_create'
+          workspaceId: number
           tempId: number
           body: { name: string; variables: Array<{ key: string; value: string; enabled: boolean }> }
       })
     | (OutboxOpBase & {
           type: 'environment_delete'
+          workspaceId: number
           environmentId: number
       })
 
@@ -87,7 +90,7 @@ export function emptySnapshot(replicaKey: string): ReplicaSnapshot {
         workspaces: [],
         activeWorkspaceId: null,
         collectionsByWorkspaceId: {},
-        environments: [],
+        environmentsByWorkspaceId: {},
         metaCollection: {},
         metaWorkspace: {},
         metaEnv: {},

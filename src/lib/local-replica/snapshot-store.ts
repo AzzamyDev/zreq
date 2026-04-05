@@ -19,10 +19,31 @@ export function setCurrentReplicaKey(key: string | null) {
     if (key == null) memory = null
 }
 
+function ensureEnvironmentsByWorkspaceShape(m: ReplicaSnapshot) {
+    const r = m as ReplicaSnapshot & { environments?: Environment[] }
+    if (r.environmentsByWorkspaceId != null && typeof r.environmentsByWorkspaceId === 'object') {
+        delete r.environments
+        return
+    }
+    r.environmentsByWorkspaceId = {}
+    const legacy = r.environments
+    if (legacy?.length) {
+        for (const e of legacy) {
+            const wid = e.workspaceId ?? r.activeWorkspaceId ?? r.workspaces[0]?.id ?? 0
+            const k = String(wid)
+            const cur = r.environmentsByWorkspaceId[k] ?? []
+            cur.push(structuredClone(e))
+            r.environmentsByWorkspaceId[k] = cur
+        }
+    }
+    delete r.environments
+}
+
 export async function loadSnapshotForReplica(replicaKey: string): Promise<ReplicaSnapshot> {
     const db = await openLocalDb()
     const row = await idbGetSnapshot(db, replicaKey)
     memory = row ? structuredClone(row) : emptySnapshot(replicaKey)
+    ensureEnvironmentsByWorkspaceShape(memory)
     currentReplicaKey = replicaKey
     return memory
 }
@@ -152,9 +173,40 @@ export function setWorkspacesLocal(ws: Workspace[]) {
     memory.workspaces = structuredClone(ws)
 }
 
-export function setEnvironmentsLocal(envs: Environment[]) {
+export function setWorkspaceEnvSlice(workspaceId: number, envs: Environment[]) {
     if (!memory) return
-    memory.environments = structuredClone(envs)
+    memory.environmentsByWorkspaceId[String(workspaceId)] = structuredClone(envs)
+}
+
+export function getWorkspaceEnvSlice(workspaceId: number): Environment[] {
+    if (!memory) return []
+    return structuredClone(memory.environmentsByWorkspaceId[String(workspaceId)] ?? [])
+}
+
+export function applyServerEnvironment(
+    workspaceId: number,
+    env: Environment,
+    opts: { overwriteLocal: boolean }
+) {
+    if (!memory) return
+    const key = String(workspaceId)
+    const list = memory.environmentsByWorkspaceId[key] ?? []
+    const idx = list.findIndex((e) => e.id === env.id)
+    const meta = memory.metaEnv[env.id]
+    if (meta?.dirty && !opts.overwriteLocal) return
+    const next = [...list]
+    if (idx === -1) next.push(structuredClone(env))
+    else next[idx] = structuredClone(env)
+    memory.environmentsByWorkspaceId[key] = next
+    memory.metaEnv[env.id] = { serverUpdatedAt: env.updatedAt, dirty: false }
+}
+
+export function removeEnvironmentLocal(workspaceId: number, environmentId: number) {
+    if (!memory) return
+    const key = String(workspaceId)
+    const list = memory.environmentsByWorkspaceId[key] ?? []
+    memory.environmentsByWorkspaceId[key] = list.filter((e) => e.id !== environmentId)
+    delete memory.metaEnv[environmentId]
 }
 
 export function setActiveWorkspaceIdLocal(id: number | null) {

@@ -28,6 +28,26 @@ import { cn } from '../../lib/utils'
 /** Cursor in a text segment right after `{{`, optional partial name (no closing `}}` yet). */
 const INCOMPLETE_TEMPLATE_RE = /\{\{([a-zA-Z0-9_.-]*)$/
 
+const CLOSED_VAR_TOKEN_RE = /\{\{([^}]+)\}\}/g
+
+function countClosedVarTokens(url: string): number {
+    let n = 0
+    CLOSED_VAR_TOKEN_RE.lastIndex = 0
+    while (CLOSED_VAR_TOKEN_RE.exec(url) !== null) n += 1
+    return n
+}
+
+/** Flat index in `segmentsToUrl(segments)` at start of segment `segIndex` (array index). */
+function flatOffsetAtSegmentStart(segments: UrlSegment[], segIndex: number): number {
+    let o = 0
+    for (let j = 0; j < segIndex; j++) {
+        const s = segments[j]
+        if (s.type === 'text') o += s.value.length
+        else o += 2 + s.name.length + 2
+    }
+    return o
+}
+
 /** Parent `value` can differ by trailing/leading whitespace from `newStr` we built. */
 function urlMatchesExtractPending(pending: string, current: string) {
     const a = pending.trimEnd()
@@ -108,9 +128,11 @@ function VarTemplateField({
     } | null>(null)
     const [suggestHighlight, setSuggestHighlight] = useState(0)
     const suggestRowRef = useRef<Map<number, HTMLButtonElement>>(new Map())
-    const afterTemplateSuggestCaretRef = useRef<{ segIndex: number; pos: number } | null>(null)
+    const afterTemplateSuggestCaretRef = useRef<{ flatOffset: number } | null>(null)
     const templateSuggestLiveRef = useRef(templateSuggest)
     templateSuggestLiveRef.current = templateSuggest
+    /** Setelah pilih saran, chip baru sering tepat di bawah pointer → `mouseEnter` buka Popover dan rebut fokus dari caret kanan chip. */
+    const blockVarChipHoverOpenUntilRef = useRef(0)
 
     const segments = useMemo(() => parseUrlSegments(value || ''), [value])
 
@@ -168,14 +190,30 @@ function VarTemplateField({
 
     const applyTemplateSuggestion = (pickKey: string) => {
         if (!templateSuggest) return
+        setOpenVarSegIndex(null)
         const { segIndex, openBraceStart, caretPos } = templateSuggest
         const seg = segments[segIndex]
         if (seg?.type !== 'text') return
         const token = `{{${pickKey}}}`
         const newVal = seg.value.slice(0, openBraceStart) + token + seg.value.slice(caretPos)
-        const newPos = openBraceStart + token.length
-        afterTemplateSuggestCaretRef.current = { segIndex, pos: newPos }
-        flushSync(() => setFromSegments(updateTextSegment(segments, segIndex, newVal)))
+        const caretInSegment = openBraceStart + token.length
+        let prefixBeforeTextSeg = 0
+        for (let i = 0; i < segIndex; i++) {
+            const s = segments[i]
+            if (s.type === 'text') prefixBeforeTextSeg += s.value.length
+            else prefixBeforeTextSeg += 2 + s.name.length + 2
+        }
+        const nextSegs = updateTextSegment(segments, segIndex, newVal)
+        const nextUrl = segmentsToUrl(nextSegs)
+        let tokenStart = nextUrl.indexOf(token, prefixBeforeTextSeg)
+        if (tokenStart < 0) tokenStart = nextUrl.indexOf(token)
+        const flatOffset =
+            tokenStart >= 0
+                ? tokenStart + token.length
+                : prefixBeforeTextSeg + caretInSegment
+        afterTemplateSuggestCaretRef.current = { flatOffset }
+        blockVarChipHoverOpenUntilRef.current = performance.now() + 600
+        flushSync(() => setFromSegments(nextSegs))
         setTemplateSuggest(null)
     }
 
@@ -348,17 +386,53 @@ function VarTemplateField({
         }
     }, [value, runPostExtractFocus])
 
-    useLayoutEffect(() => {
+    /**
+     * Caret ke kanan chip harus jalan **setelah paint** + sisa event pointer dari klik saran.
+     * `useLayoutEffect` terlalu awal — ghost click / Popover sempat rebut fokus di frame berikutnya.
+     */
+    useEffect(() => {
         const p = afterTemplateSuggestCaretRef.current
         if (!p) return
-        const el = rootRef.current?.querySelector<HTMLInputElement>(
-            `input[data-template-seg-type="text"][data-template-seg-idx="${p.segIndex}"]`,
-        )
-        if (el) {
-            el.focus({ preventScroll: true })
-            el.setSelectionRange(p.pos, p.pos)
+        let cancelled = false
+        let rafId = 0
+        let tries = 0
+        let stableFrames = 0
+        const maxTries = 24
+
+        const finish = () => {
+            if (afterTemplateSuggestCaretRef.current === p) afterTemplateSuggestCaretRef.current = null
         }
-        afterTemplateSuggestCaretRef.current = null
+
+        const hammerFocus = () => {
+            if (cancelled || afterTemplateSuggestCaretRef.current !== p) return
+            const mapped = flatOffsetToTextCaret(parseUrlSegments(value || ''), p.flatOffset)
+            if (!mapped) {
+                finish()
+                return
+            }
+            const el = rootRef.current?.querySelector<HTMLInputElement>(
+                `input[data-template-seg-type="text"][data-template-seg-idx="${mapped.segIndex}"]`,
+            )
+            if (el) {
+                el.focus({ preventScroll: true })
+                el.setSelectionRange(mapped.caret, mapped.caret)
+                const pos = el.selectionStart ?? 0
+                const end = el.selectionEnd ?? 0
+                const caretOk = pos === mapped.caret && end === mapped.caret
+                stableFrames =
+                    document.activeElement === el && caretOk ? stableFrames + 1 : 0
+            } else stableFrames = 0
+            tries += 1
+            if (stableFrames >= 2 || tries >= maxTries) finish()
+            else rafId = requestAnimationFrame(hammerFocus)
+        }
+
+        rafId = requestAnimationFrame(() => requestAnimationFrame(hammerFocus))
+
+        return () => {
+            cancelled = true
+            cancelAnimationFrame(rafId)
+        }
     }, [value])
 
     const textInputIndexToFlatOffset = (inputIndex: number, caret: number): number => {
@@ -520,7 +594,16 @@ function VarTemplateField({
                                             ? 'border border-[color-mix(in_srgb,var(--border)_90%,transparent)] bg-[color-mix(in_srgb,#44475a_42%,#282a36)] focus-within:ring-[var(--dracula-cyan)]/25'
                                             : 'border border-dashed border-[var(--dracula-red)]/85 bg-[color-mix(in_srgb,#ff5555_22%,#282a36)] focus-within:ring-[var(--dracula-red)]/35',
                                     )}
-                                    onMouseEnter={() => openVarPanel(i)}
+                                    onPointerDownCapture={(e) => {
+                                        if (performance.now() < blockVarChipHoverOpenUntilRef.current) {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                        }
+                                    }}
+                                    onMouseEnter={() => {
+                                        if (performance.now() < blockVarChipHoverOpenUntilRef.current) return
+                                        openVarPanel(i)
+                                    }}
                                     onMouseLeave={scheduleHoverClose}
                                 >
                                     <div className="inline-flex min-w-0 flex-1 items-stretch">
@@ -700,7 +783,17 @@ function VarTemplateField({
                             type="text"
                             value={seg.value}
                             onChange={(e) => {
+                                const prevUrl = segmentsToUrl(segments)
                                 const next = updateTextSegment(segments, i, e.target.value)
+                                const nextUrl = segmentsToUrl(next)
+                                if (countClosedVarTokens(nextUrl) > countClosedVarTokens(prevUrl)) {
+                                    const caret = e.target.selectionStart ?? e.target.value.length
+                                    afterTemplateSuggestCaretRef.current = {
+                                        flatOffset: flatOffsetAtSegmentStart(segments, i) + caret,
+                                    }
+                                    blockVarChipHoverOpenUntilRef.current = performance.now() + 600
+                                    setOpenVarSegIndex(null)
+                                }
                                 setFromSegments(next)
                                 syncTemplateSuggestFromInput(e.currentTarget, i)
                             }}

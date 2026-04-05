@@ -221,6 +221,7 @@ export default function WorkspaceSwitcher() {
                 mem.workspaces = useAppStore.getState().workspaces
                 delete mem.metaWorkspace[wid]
                 delete mem.collectionsByWorkspaceId[String(wid)]
+                delete mem.environmentsByWorkspaceId[String(wid)]
             }
             await snap.persistSnapshotNow()
             await writeWorkspaceDelete(wid)

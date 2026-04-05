@@ -50,11 +50,12 @@ export async function resolveConflictKeepServer(c: ConflictEntry) {
         }
     } else if (c.kind === 'environment') {
         const srv = c.server as Environment
+        const wid = c.workspaceId ?? srv.workspaceId
         snap.clearDirtyMeta('environment', srv.id, srv.updatedAt)
-        useAppStore.getState().updateEnvironment(srv.id, srv)
-        snap.applyMemory((mem) => {
-            mem.environments = structuredClone(useAppStore.getState().environments)
-        })
+        snap.applyServerEnvironment(wid, srv, { overwriteLocal: true })
+        if (useAppStore.getState().activeWorkspaceId === wid) {
+            useAppStore.getState().updateEnvironment(srv.id, srv)
+        }
     }
 
     await snap.persistSnapshotNow()
@@ -115,11 +116,12 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
             force: true,
         })
         const srv = res.data.data
+        const wid = c.workspaceId ?? local.workspaceId ?? srv.workspaceId
         snap.clearDirtyMeta('environment', srv.id, srv.updatedAt)
-        useAppStore.getState().updateEnvironment(srv.id, srv)
-        snap.applyMemory((mem) => {
-            mem.environments = structuredClone(useAppStore.getState().environments)
-        })
+        snap.applyServerEnvironment(wid, srv, { overwriteLocal: true })
+        if (useAppStore.getState().activeWorkspaceId === wid) {
+            useAppStore.getState().updateEnvironment(srv.id, srv)
+        }
     }
 
     await snap.persistSnapshotNow()
