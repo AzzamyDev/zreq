@@ -11,8 +11,8 @@ ZReq helps you:
 - **Compose and run** HTTP requests (method, URL, headers, body) with a comfortable editor.
 - **Organize** requests in **collections** per **workspace**, including **environments** for variables.
 - **Connect to your own API instance** (not a single fixed host): instance onboarding, switch servers from the toolbar.
-- **Sync** collections and workspace data to the server, with a local replica and conflict handling when needed.
-- **Import** collections from **Postman** or **ZReq** (JSON).
+- **Sync** with an outbox + local replica model, conflict handling, and a manual **Sync Now** trigger.
+- **Import** collections/environments from **Postman** or **ZReq** (including multi-file import).
 
 A good fit for teams that already run a ZReq backend and want one desktop app for signed-in API exploration.
 
@@ -22,11 +22,12 @@ A good fit for teams that already run a ZReq backend and want one desktop app fo
 
 | Area | Summary |
 |------|---------|
-| **Requests** | Builder + response panel, multiple request tabs, resizable panels. |
-| **Collections** | Tree of collections/folders, drag & sort, create & import collections. |
+| **Requests** | Builder + response panel, multiple request tabs, resizable panels, script-friendly env variable resolution. |
+| **Collections** | Tree of collections/folders, drag & sort, create/import (single or multiple files), Postman + ZReq compatibility. |
+| **Environments** | Environment selector, dedicated manage button, import/export, editable variables with autosave. |
 | **Workspaces** | Multiple workspaces, members (invite by email), centralized settings. |
 | **Auth** | Sign in / register, **GitHub OAuth** (desktop deep link `zreq://`). |
-| **Sync** | Sync status, outbox, conflict dialog when local vs remote diverge. |
+| **Sync** | Sync status + outbox badge, conflict dialog, sync strategy options (debounced / interval / manual), toolbar **Sync** button. |
 | **Experience** | Command palette, i18n (e.g. EN/ID), dark theme and accent colors. |
 
 ---
@@ -57,7 +58,47 @@ Desktop production build:
 pnpm tauri build
 ```
 
+Common helper commands:
+
+```bash
+pnpm dev
+pnpm build
+pnpm tauri build
+```
+
+### For macOS users (GitHub Release build)
+
+If you download the app from GitHub Releases, open the `.dmg` file first, then drag `ZReq.app` to your Desktop.
+
+After that, run this command before opening the app:
+
+```bash
+xattr -cr ~/Desktop/ZReq.app && sudo codesign --force --deep --sign - ~/Desktop/ZReq.app
+```
+
+Adjust the `ZReq.app` path if you keep the app in another location (for example `~/Downloads`).
+
 Backend URL is configured from the active instance inside the app (Instance Onboarding / Instance Settings).
+
+---
+
+## Sync behavior (current)
+
+ZReq uses a local outbox and background sync. You can control upload strategy from **Settings → General → Server sync (upload)**:
+
+- **Automatic (short delay)**: default behavior, pushes shortly after edits.
+- **Periodic**: pushes every N minutes only when outbox has pending changes.
+- **Manual only**: no automatic push; use the toolbar **Sync** button when ready.
+
+Even in manual/periodic mode, the app can still pull latest server data in background to keep view up to date.
+
+---
+
+## Import support (current)
+
+- **Collections**: Postman v2.1, ZReq export, root arrays, and bundle-style payloads.
+- **Environments**: Postman (`values`), ZReq single/bundle, `.env`, multi-file import.
+- Import is available from collection sidebar and environment manager.
 
 ---
 
