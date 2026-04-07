@@ -17,8 +17,15 @@ import {
     ensureReplicaLoaded,
     hydrateFromDiskIfNeeded,
     isRemoteSyncBlocked,
+    pullRemoteFull,
     pullThenPush,
 } from '@/lib/local-replica/sync-engine'
+import {
+    getSyncPushIntervalMs,
+    getSyncPushStrategy,
+    shouldBackgroundPullThenPush,
+    SYNC_PREFS_CHANGED,
+} from '@/lib/sync-preferences'
 import AppFooter from '@/components/layout/AppFooter'
 import ConflictDialog from '@/components/sync/ConflictDialog'
 
@@ -54,7 +61,8 @@ function AppShell() {
         if (!user) return
         const syncIfUnblocked = () => {
             if (isRemoteSyncBlocked()) return
-            void pullThenPush()
+            if (shouldBackgroundPullThenPush()) void pullThenPush()
+            else void pullRemoteFull()
         }
         const onVisibility = () => {
             if (document.visibilityState === 'visible') syncIfUnblocked()
@@ -79,7 +87,8 @@ function AppShell() {
             const r = await validatezreqBackend(baseUrl)
             useSyncStore.getState().setInstanceReachable(r.ok)
             if (r.ok) {
-                void pullThenPush()
+                if (shouldBackgroundPullThenPush()) void pullThenPush()
+                else void pullRemoteFull()
             }
         }
         void probe()
@@ -94,7 +103,8 @@ function AppShell() {
             await hydrateFromDiskIfNeeded()
             if (cancelled) return
             if (!isRemoteSyncBlocked()) {
-                await pullThenPush()
+                if (shouldBackgroundPullThenPush()) await pullThenPush()
+                else await pullRemoteFull()
             }
         })()
         return () => {
@@ -127,9 +137,38 @@ function AppShell() {
         void ensureReplicaLoaded().then(() => {
             useAppStore.getState().setCollections(snap.getWorkspaceSlice(activeWorkspaceId))
             useAppStore.getState().setEnvironments(snap.getWorkspaceEnvSlice(activeWorkspaceId))
-            if (!isRemoteSyncBlocked()) void pullThenPush()
+            if (!isRemoteSyncBlocked()) {
+                if (shouldBackgroundPullThenPush()) void pullThenPush()
+                else void pullRemoteFull()
+            }
         })
     }, [activeWorkspaceId])
+
+    // Periodic push when strategy is "interval" and outbox has ops.
+    useEffect(() => {
+        if (!user) return
+        let tid: ReturnType<typeof setInterval> | null = null
+        const arm = () => {
+            if (tid != null) {
+                clearInterval(tid)
+                tid = null
+            }
+            if (getSyncPushStrategy() !== 'interval') return
+            const ms = getSyncPushIntervalMs()
+            tid = setInterval(() => {
+                if (isRemoteSyncBlocked()) return
+                const { pendingOutbox, pushing } = useSyncStore.getState()
+                if (pendingOutbox > 0 && !pushing) void pullThenPush()
+            }, ms)
+        }
+        arm()
+        const onPrefs = () => arm()
+        window.addEventListener(SYNC_PREFS_CHANGED, onPrefs)
+        return () => {
+            window.removeEventListener(SYNC_PREFS_CHANGED, onPrefs)
+            if (tid != null) clearInterval(tid)
+        }
+    }, [user?.id])
 
     const [sidebarDefaultLayout] = useState(readSidebarLayout)
     const onSidebarLayoutChanged = useCallback((layout: Layout) => {

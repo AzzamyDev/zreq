@@ -13,6 +13,7 @@ import { makeReplicaKey } from './replica-key'
 import * as snap from './snapshot-store'
 import { enqueueOp, listPending, removeOp } from './outbox-ops'
 import type { ConflictEntry, OutboxOp } from './types'
+import { shouldDebouncePushAfterLocalEdit } from '@/lib/sync-preferences'
 
 // ---------------------------------------------------------------------------
 // Constants & module-level state
@@ -138,11 +139,19 @@ export async function ensureReplicaLoaded(): Promise<void> {
 }
 
 export function scheduleSync() {
+    if (!shouldDebouncePushAfterLocalEdit()) {
+        return
+    }
     if (syncDebounceTimer != null) clearTimeout(syncDebounceTimer)
     syncDebounceTimer = setTimeout(() => {
         syncDebounceTimer = null
         void pullThenPush()
     }, SYNC_DEBOUNCE_MS)
+}
+
+/** User-triggered or periodic full sync (pull then push outbox). */
+export function syncNow(): Promise<void> {
+    return pullThenPush()
 }
 
 // ---------------------------------------------------------------------------

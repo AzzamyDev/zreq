@@ -47,6 +47,9 @@
   },
   "topBar": {
     "settingsTitle": "Pengaturan",
+    "syncNow": "Sinkron",
+    "syncNowTitle": "Tarik dari server dan unggah perubahan lokal",
+    "syncNowTitlePending": "Sinkron — {{count}} perubahan lokal belum diunggah",
     "signOut": "Keluar",
     "signOutTitle": "Keluar dari akun?",
     "signOutDescription": "Anda harus masuk lagi untuk mengakses workspace dan koleksi.",
@@ -57,7 +60,8 @@
     "importTitle": "Impor koleksi",
     "newCollectionTitle": "Koleksi baru",
     "selectWorkspaceFirst": "Pilih workspace dulu",
-    "importFailed": "Impor gagal — pastikan file Postman atau ZReq valid"
+    "importFailed": "Impor gagal — pastikan file Postman atau ZReq valid",
+    "importedCollections": "Berhasil impor {{count}} koleksi"
   },
   "auth": {
     "appTitle": "ZReq",
@@ -172,7 +176,10 @@
     "noEnvironmentsYet": "Belum ada environment",
     "searchPlaceholder": "Cari…",
     "invalidJsonFile": "File JSON tidak valid",
-    "importFailed": "Impor gagal"
+    "importFailed": "Impor gagal",
+    "importedEnvironments": "Berhasil impor {{count}} environment",
+    "unsaved": "Belum disimpan",
+    "autoSaveSoon": "Akan disimpan otomatis saat Anda berhenti mengetik."
   },
   "saveRequest": {
     "title": "Simpan permintaan",
@@ -487,6 +494,16 @@
     "sslVerifyHint": "Verifikasi sertifikat SSL untuk permintaan.",
     "autosave": "Simpan permintaan otomatis",
     "autosaveHint": "Jika aktif, perubahan pada permintaan dari koleksi disimpan otomatis (debounced).",
+    "syncPushTitle": "Sinkron ke server (unggah)",
+    "syncPushHint": "Atur kapan antrean edit dikirim ke server. Latar belakang tetap menarik data server agar update orang lain terlihat; tombol Sinkron di toolbar untuk unggah manual.",
+    "syncPushDebounced": "Otomatis (jeda singkat)",
+    "syncPushDebouncedHint": "Setelah edit, sinkron jalan sebentar lagi (~0,5 dtk), seperti sebelumnya.",
+    "syncPushInterval": "Berkala",
+    "syncPushIntervalHint": "Unggah antrean secara periodik. Cocok jika sering membatalkan edit.",
+    "syncPushManual": "Hanya manual",
+    "syncPushManualHint": "Tidak ada unggah sampai Anda klik Sinkron di toolbar (atau menyelesaikan konflik).",
+    "syncPushEvery": "Setiap",
+    "syncPushMinutes": "menit (jika ada perubahan tertunda)",
     "language": "Bahasa",
     "languageHint": "Bahasa antarmuka. Default bahasa Inggris.",
     "themesTitle": "Tema",

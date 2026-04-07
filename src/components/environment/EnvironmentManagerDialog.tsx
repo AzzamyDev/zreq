@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
 import { Upload, Download } from 'lucide-react'
@@ -11,9 +11,30 @@ import {
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { useAppStore } from '../../store'
+import { useSyncStore } from '../../store/syncStore'
 import { useEnvironment } from '../../hooks/useEnvironment'
-import { importEnvironment, exportEnvironment } from '../../lib/importExport'
-import type { KV } from '../../types'
+import { importEnvironments, exportEnvironment } from '../../lib/importExport'
+import type { KV, Environment } from '../../types'
+import { toast } from 'sonner'
+import { apiClient } from '@/lib/api-client'
+import { pullRemoteFull } from '@/lib/local-replica/sync-engine'
+
+const AUTOSAVE_DEBOUNCE_MS = 700
+
+function buildVarsPayload(localVars: KV[], draftKey: string, draftVal: string) {
+    const pending =
+        draftKey.trim() || draftVal.trim()
+            ? [{ key: draftKey, value: draftVal, enabled: true as const }]
+            : []
+    const merged = pending.length ? [...localVars, ...pending] : localVars
+    return merged
+        .filter((v) => v.key.trim())
+        .map(({ key, value, enabled }) => ({ key, value, enabled }))
+}
+
+function varsSig(vars: ReturnType<typeof buildVarsPayload>) {
+    return JSON.stringify(vars)
+}
 
 interface EnvironmentManagerDialogProps {
     open: boolean
@@ -22,8 +43,17 @@ interface EnvironmentManagerDialogProps {
 
 export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentManagerDialogProps) {
     const { t } = useTranslation()
-    const { environments } = useAppStore()
+    const { environments, activeWorkspaceId } = useAppStore()
     const { createEnvironment, updateVariables, renameEnvironment, deleteEnvironment } = useEnvironment()
+    const updateVariablesRef = useRef(updateVariables)
+    updateVariablesRef.current = updateVariables
+
+    const online = useSyncStore((s) => s.online)
+    const reachable = useSyncStore((s) => s.instanceReachable)
+    const pending = useSyncStore((s) => s.pendingOutbox)
+    const pulling = useSyncStore((s) => s.pulling)
+    const pushing = useSyncStore((s) => s.pushing)
+    const lastErr = useSyncStore((s) => s.lastError)
 
     const [selectedId, setSelectedId] = useState<number | null>(null)
     const [localVars, setLocalVars] = useState<KV[]>([])
@@ -36,10 +66,18 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
     const [importError, setImportError] = useState<string | null>(null)
     const [isImporting, setIsImporting] = useState(false)
     const [saveNotice, setSaveNotice] = useState<'success' | 'error' | null>(null)
+    const [persistedVarsSig, setPersistedVarsSig] = useState<string | null>(null)
     const importInputRef = useRef<HTMLInputElement>(null)
     const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const selectAllVarsRef = useRef<HTMLInputElement>(null)
     const draftRowRef = useRef({ key: '', value: '' })
+    /** Skip one hydrate after tempId → real id remap so in-progress edits are not wiped. */
+    const preserveLocalDraftRef = useRef(false)
+    const persistedVarsSigRef = useRef<string | null>(null)
+    const isSavingRef = useRef(false)
+    const localVarsRef = useRef<KV[]>([])
+    const selectedIdRef = useRef<number | null>(null)
+    const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     // Tracks the name of the selected env so we can recover selection when
     // tempId is replaced by the real server ID after sync.
     const selectedEnvNameRef = useRef<string | null>(null)
@@ -48,6 +86,14 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
 
     const selectedEnv = environments.find((e) => e.id === selectedId) ?? null
 
+    const commitPersistedVarsSig = useCallback((sig: string | null) => {
+        persistedVarsSigRef.current = sig
+        setPersistedVarsSig(sig)
+    }, [])
+
+    localVarsRef.current = localVars
+    selectedIdRef.current = selectedId
+
     // When selectedId points to a tempId that no longer exists (replaced after sync),
     // recover the selection by finding the env with the same name.
     useEffect(() => {
@@ -55,7 +101,10 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         const found = environments.find((e) => e.id === selectedId)
         if (!found && selectedEnvNameRef.current) {
             const match = environments.find((e) => e.name === selectedEnvNameRef.current)
-            if (match) setSelectedId(match.id)
+            if (match) {
+                preserveLocalDraftRef.current = true
+                setSelectedId(match.id)
+            }
         }
         if (found) selectedEnvNameRef.current = found.name
     }, [environments, selectedId])
@@ -76,26 +125,88 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         }, 3200)
     }
 
-    // When selected env changes, load its variables into local state
+    // Load editor from store only when opening or switching selection — not on every remote sync
+    // (avoids the “refresh” feeling while typing).
     useEffect(() => {
-        if (selectedEnv) {
-            setLocalVars(
-                (selectedEnv.variables ?? []).map((v) => ({
-                    id: nanoid(),
-                    key: v.key,
-                    value: v.value,
-                    enabled: v.enabled,
-                }))
-            )
-            setNameValue(selectedEnv.name)
-        } else {
+        if (!open) return
+        if (selectedId === null) {
             setLocalVars([])
             setNameValue('')
+            setDraftRow({ key: '', value: '' })
+            draftRowRef.current = { key: '', value: '' }
+            setEditingName(false)
+            commitPersistedVarsSig(null)
+            return
         }
+        const env = useAppStore.getState().environments.find((e) => e.id === selectedId)
+        if (!env) return
+
+        if (preserveLocalDraftRef.current) {
+            preserveLocalDraftRef.current = false
+            return
+        }
+
+        const rows = (env.variables ?? []).map((v) => ({
+            id: nanoid(),
+            key: v.key,
+            value: v.value,
+            enabled: v.enabled,
+        }))
+        setLocalVars(rows)
+        setNameValue(env.name)
         setDraftRow({ key: '', value: '' })
         draftRowRef.current = { key: '', value: '' }
         setEditingName(false)
-    }, [selectedId, environments])
+        commitPersistedVarsSig(varsSig(buildVarsPayload(rows, '', '')))
+    }, [open, selectedId, commitPersistedVarsSig])
+
+    const currentVarsSig = useMemo(
+        () => varsSig(buildVarsPayload(localVars, draftRow.key, draftRow.value)),
+        [localVars, draftRow.key, draftRow.value]
+    )
+
+    const varsDirty = persistedVarsSig != null && currentVarsSig !== persistedVarsSig
+    const nameDirty =
+        editingName && selectedEnv != null && nameValue.trim() !== selectedEnv.name.trim()
+    const showUnsaved = varsDirty || nameDirty
+
+    // Debounced auto-save (variables only)
+    useEffect(() => {
+        if (!open || selectedId === null || persistedVarsSigRef.current === null) return
+        if (currentVarsSig === persistedVarsSigRef.current) return
+        if (isSavingRef.current) return
+
+        if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+        autosaveTimerRef.current = setTimeout(() => {
+            autosaveTimerRef.current = null
+            if (isSavingRef.current) return
+            const id = selectedIdRef.current
+            if (id === null) return
+            const d = draftRowRef.current
+            const payload = buildVarsPayload(localVarsRef.current, d.key, d.value)
+            const sig = varsSig(payload)
+            if (sig === persistedVarsSigRef.current) return
+            void (async () => {
+                try {
+                    await updateVariablesRef.current(id, payload)
+                    if (d.key.trim() || d.value.trim()) {
+                        draftRowRef.current = { key: '', value: '' }
+                        setDraftRow({ key: '', value: '' })
+                    }
+                    commitPersistedVarsSig(sig)
+                } catch {
+                    /* keep dirty; user can use Save or keep editing */
+                }
+            })()
+        }, AUTOSAVE_DEBOUNCE_MS)
+
+        return () => {
+            if (autosaveTimerRef.current) {
+                clearTimeout(autosaveTimerRef.current)
+                autosaveTimerRef.current = null
+            }
+        }
+    }, [open, selectedId, currentVarsSig, commitPersistedVarsSig])
 
     // Auto-select first env when dialog opens
     useEffect(() => {
@@ -120,9 +231,18 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                 clearTimeout(saveNoticeTimerRef.current)
                 saveNoticeTimerRef.current = null
             }
+            if (autosaveTimerRef.current) {
+                clearTimeout(autosaveTimerRef.current)
+                autosaveTimerRef.current = null
+            }
         },
         []
     )
+
+    const syncBlocked = !online
+    const showUnreachable = online && reachable === false
+    const showPending = pending > 0 || pulling || pushing
+    const showSyncErr = !!lastErr && !syncBlocked
 
     const q = envListQuery.trim().toLowerCase()
     const filteredEnvs = q
@@ -194,6 +314,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
             .filter((v) => v.key.trim())
             .map(({ key, value, enabled }) => ({ key, value, enabled }))
 
+        isSavingRef.current = true
         setIsSaving(true)
         try {
             await updateVariables(selectedId, payload)
@@ -201,10 +322,12 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                 draftRowRef.current = { key: '', value: '' }
                 setDraftRow({ key: '', value: '' })
             }
+            commitPersistedVarsSig(varsSig(payload))
             flashSaveNotice('success')
         } catch {
             flashSaveNotice('error')
         } finally {
+            isSavingRef.current = false
             setIsSaving(false)
         }
     }
@@ -231,17 +354,50 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         setEditingName(false)
     }
 
-    const handleImportFile = async (file: File) => {
+    const handleImportFiles = async (files: FileList | null) => {
+        const list = Array.from(files ?? [])
+        if (list.length === 0) return
         setImportError(null)
         setIsImporting(true)
         try {
-            const text = await file.text()
-            const { name, variables } = importEnvironment(text)
-            const created = await createEnvironment(name, variables)
-            if (!created) return
-            setSelectedId(created.id)
-            setIsCreating(false)
-            setNewEnvName('')
+            const importedRows: Array<{ name: string; variables: Array<{ key: string; value: string; enabled: boolean }> }> = []
+            for (const file of list) {
+                const text = await file.text()
+                importedRows.push(...importEnvironments(text))
+            }
+
+            let createdCount = 0
+            let lastCreatedId: number | null = null
+            const canCreateDirectly = activeWorkspaceId != null && online && reachable !== false
+
+            if (canCreateDirectly) {
+                for (const row of importedRows) {
+                    const res = await apiClient.post<{ data: Environment }>('/environments', {
+                        workspaceId: activeWorkspaceId,
+                        name: row.name,
+                        variables: row.variables,
+                    })
+                    createdCount += 1
+                    lastCreatedId = res.data.data.id
+                }
+                // Ensure sidebar/list reflects authoritative server state after batch create.
+                await pullRemoteFull()
+            } else {
+                for (const row of importedRows) {
+                    const created = await createEnvironment(row.name, row.variables)
+                    if (!created) continue
+                    createdCount += 1
+                    lastCreatedId = created.id
+                }
+            }
+            if (lastCreatedId != null) {
+                setSelectedId(lastCreatedId)
+                setIsCreating(false)
+                setNewEnvName('')
+            }
+            if (createdCount > 0) {
+                toast.success(t('environment.importedEnvironments', { count: createdCount }))
+            }
         } catch (e) {
             setImportError(e instanceof Error ? e.message : t('environment.importFailed'))
         } finally {
@@ -317,10 +473,10 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                 ref={importInputRef}
                                 type="file"
                                 accept=".json,.env,application/json,text/plain"
+                                multiple
                                 className="hidden"
                                 onChange={(e) => {
-                                    const f = e.target.files?.[0]
-                                    if (f) void handleImportFile(f)
+                                    void handleImportFiles(e.target.files)
                                 }}
                             />
                             <Button
@@ -575,26 +731,48 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                     </table>
                                 </div>
 
-                                <div className="mx-0 flex items-center justify-between gap-3 border-t border-border bg-muted/50 px-3 py-2">
+                                <div className="mx-0 flex flex-col gap-1.5 border-t border-border bg-muted/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                                     <div
-                                        className="min-h-7 flex flex-1 items-center text-xs"
+                                        className="flex min-h-7 min-w-0 flex-1 flex-col gap-1 text-[11px] leading-snug text-muted-foreground"
                                         role="status"
                                         aria-live="polite"
                                     >
+                                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                                            {showUnsaved ? (
+                                                <span className="shrink-0 font-medium text-amber-700 dark:text-amber-400">
+                                                    {t('environment.unsaved')}
+                                                </span>
+                                            ) : null}
+                                            {varsDirty && !syncBlocked ? (
+                                                <span className="min-w-0">{t('environment.autoSaveSoon')}</span>
+                                            ) : null}
+                                            {syncBlocked ? (
+                                                <span className="shrink-0">{t('sync.offline')}</span>
+                                            ) : null}
+                                            {showUnreachable && !syncBlocked ? (
+                                                <span className="shrink-0">{t('sync.serverUnreachable')}</span>
+                                            ) : null}
+                                            {showPending ? (
+                                                <span className="shrink-0 tabular-nums">
+                                                    {pulling || pushing ? t('sync.syncing') : t('sync.pending', { count: pending })}
+                                                </span>
+                                            ) : null}
+                                            {showSyncErr ? (
+                                                <span className="min-w-0 max-w-full truncate text-destructive">{lastErr}</span>
+                                            ) : null}
+                                        </div>
                                         {saveNotice === 'success' ? (
                                             <span className="font-medium text-emerald-600 dark:text-emerald-400">
                                                 {t('environment.changesSaved')}
                                             </span>
                                         ) : saveNotice === 'error' ? (
-                                            <span className="font-medium text-destructive">
-                                                {t('environment.saveFailed')}
-                                            </span>
+                                            <span className="font-medium text-destructive">{t('environment.saveFailed')}</span>
                                         ) : null}
                                     </div>
                                     <Button
                                         type="button"
                                         size="sm"
-                                        className="h-7 shrink-0 text-xs"
+                                        className="h-7 shrink-0 self-end text-xs sm:self-auto"
                                         onClick={() => void handleSave()}
                                         disabled={isSaving}
                                     >

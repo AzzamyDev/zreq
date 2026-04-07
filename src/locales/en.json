@@ -47,6 +47,9 @@
   },
   "topBar": {
     "settingsTitle": "Settings",
+    "syncNow": "Sync",
+    "syncNowTitle": "Pull from server and push local changes",
+    "syncNowTitlePending": "Sync — {{count}} local change(s) not uploaded yet",
     "signOut": "Sign out",
     "signOutTitle": "Sign out?",
     "signOutDescription": "You will need to sign in again to access your workspaces and collections.",
@@ -57,7 +60,8 @@
     "importTitle": "Import Collection",
     "newCollectionTitle": "New Collection",
     "selectWorkspaceFirst": "Select a workspace first",
-    "importFailed": "Import failed — ensure this is a valid Postman or ZReq collection"
+    "importFailed": "Import failed — ensure this is a valid Postman or ZReq collection",
+    "importedCollections": "Imported {{count}} collection(s)"
   },
   "auth": {
     "appTitle": "ZReq",
@@ -172,7 +176,10 @@
     "noEnvironmentsYet": "No environments yet",
     "searchPlaceholder": "Search…",
     "invalidJsonFile": "Invalid JSON file",
-    "importFailed": "Import failed"
+    "importFailed": "Import failed",
+    "importedEnvironments": "Imported {{count}} environment(s)",
+    "unsaved": "Unsaved changes",
+    "autoSaveSoon": "Will save automatically when you pause typing."
   },
   "saveRequest": {
     "title": "Save Request",
@@ -487,6 +494,16 @@
     "sslVerifyHint": "Verify SSL certs for requests.",
     "autosave": "Auto-save requests",
     "autosaveHint": "When on, changes to a request opened from a collection are saved automatically (debounced).",
+    "syncPushTitle": "Server sync (upload)",
+    "syncPushHint": "Control when queued edits are sent to the server. Pull-only background refresh still runs so you can see remote updates; use the toolbar Sync button to upload immediately when needed.",
+    "syncPushDebounced": "Automatic (short delay)",
+    "syncPushDebouncedHint": "After each edit, sync runs shortly (~0.5s), same as before.",
+    "syncPushInterval": "Periodic",
+    "syncPushIntervalHint": "Upload queued changes on a timer. Good if you often discard edits.",
+    "syncPushManual": "Manual only",
+    "syncPushManualHint": "Nothing uploads until you click Sync in the toolbar (or resolve a conflict).",
+    "syncPushEvery": "Every",
+    "syncPushMinutes": "minutes (if there are pending changes)",
     "language": "Language",
     "languageHint": "Interface language. English is the default.",
     "themesTitle": "Themes",
