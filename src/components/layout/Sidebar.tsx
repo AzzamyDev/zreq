@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Plus, Upload } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import CollectionTree from '../collection/CollectionTree'
-import { importCollection } from '../../lib/importExport'
+import { importCollections } from '../../lib/importExport'
 import { createLocalCollection } from '@/lib/local-replica/local-write'
 import { useAppStore } from '../../store'
 import { useSyncStore } from '@/store/syncStore'
@@ -19,17 +19,26 @@ export default function Sidebar() {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
+        const files = Array.from(e.target.files ?? [])
+        if (files.length === 0) return
         try {
             if (activeWorkspaceId == null) {
                 toast.warning(t('sidebar.selectWorkspaceFirst'))
                 return
             }
-            const text = await file.text()
-            const data = importCollection(text)
-            const { name, items, ...extra } = data
-            await createLocalCollection(name, items as unknown[], extra)
+            let imported = 0
+            for (const file of files) {
+                const text = await file.text()
+                const rows = importCollections(text)
+                for (const data of rows) {
+                    const { name, items, ...extra } = data
+                    await createLocalCollection(name, items as unknown[], extra)
+                    imported += 1
+                }
+            }
+            if (imported > 0) {
+                toast.success(t('sidebar.importedCollections', { count: imported }))
+            }
         } catch (err) {
             console.error(err)
             const detail = isAxiosError(err)
@@ -85,6 +94,7 @@ export default function Sidebar() {
                 ref={fileInputRef}
                 type="file"
                 accept=".json"
+                multiple
                 className="hidden"
                 onChange={handleImportFile}
             />

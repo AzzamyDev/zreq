@@ -9,6 +9,8 @@ import {
     writeEnvironmentPatch,
 } from '@/lib/local-replica/local-write'
 
+let nextEnvTempId = -1
+
 export function useEnvironment() {
     const { setEnvironments, updateEnvironment, removeEnvironment, setActiveEnvironmentId } = useAppStore()
 
@@ -20,7 +22,15 @@ export function useEnvironment() {
         if (!user) return
         const wid = useAppStore.getState().activeWorkspaceId
         if (wid == null) return
-        const tempId = -Math.floor(Math.random() * 1e12 + Date.now())
+        // Allocate monotonic negative temp ids to avoid collisions
+        // during fast batch imports and concurrent sync remaps.
+        const envs = useAppStore.getState().environments
+        const minId = envs.reduce((acc, e) => (e.id < acc ? e.id : acc), 0)
+        if (nextEnvTempId >= minId) {
+            nextEnvTempId = minId - 1
+        }
+        const tempId = nextEnvTempId
+        nextEnvTempId -= 1
         const now = new Date().toISOString()
         const env: Environment = {
             id: tempId,

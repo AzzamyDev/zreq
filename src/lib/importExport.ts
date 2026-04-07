@@ -1,6 +1,9 @@
 import type { Collection, Environment, RequestBody } from '../types'
 import { nanoid } from 'nanoid'
 
+type ImportedCollection = Omit<Collection, 'id' | 'userId' | 'workspaceId' | 'createdAt' | 'updatedAt'>
+type ImportedEnvironment = { name: string; variables: Array<{ key: string; value: string; enabled: boolean }> }
+
 /** Normalize Postman request (object or URL string) for import. */
 function normalizePostmanRequest(item: any): any {
     const r = item.request
@@ -78,6 +81,19 @@ export function exportCollection(collection: Collection): string {
     return JSON.stringify({ zreq: true, version: 1, collection }, null, 2)
 }
 
+export function exportCollections(collections: Collection[]): string {
+    return JSON.stringify(
+        {
+            zreq: true,
+            version: 1,
+            type: 'collections',
+            collections,
+        },
+        null,
+        2
+    )
+}
+
 export function exportEnvironment(env: Environment): string {
     return JSON.stringify(
         {
@@ -98,83 +114,127 @@ export function exportEnvironment(env: Environment): string {
     )
 }
 
-export function importEnvironment(
-    input: string
-): { name: string; variables: Array<{ key: string; value: string; enabled: boolean }> } {
-    // Try .env file format (KEY=VALUE)
-    if (!input.trimStart().startsWith('{')) {
-        const variables: Array<{ key: string; value: string; enabled: boolean }> = []
-        for (const raw of input.split('\n')) {
-            const line = raw.trim()
-            if (!line || line.startsWith('#')) continue
-            const eq = line.indexOf('=')
-            if (eq === -1) continue
-            const key = line.slice(0, eq).trim()
-            if (!key) continue
-            let value = line.slice(eq + 1).trim()
-            // Strip surrounding quotes
-            if ((value.startsWith('"') && value.endsWith('"')) ||
-                (value.startsWith("'") && value.endsWith("'"))) {
-                value = value.slice(1, -1)
+function parseEnvVariables(input: unknown): Array<{ key: string; value: string; enabled: boolean }> {
+    return (Array.isArray(input) ? input : [])
+        .map((v) => {
+            if (!v || typeof v !== 'object') return null
+            const row = v as Record<string, unknown>
+            const key = typeof row.key === 'string' ? row.key.trim() : ''
+            if (!key) return null
+            return {
+                key,
+                value: row.value === null || row.value === undefined ? '' : String(row.value),
+                enabled: row.enabled !== false,
             }
-            variables.push({ key, value, enabled: true })
+        })
+        .filter((v): v is { key: string; value: string; enabled: boolean } => v !== null)
+}
+
+function parseDotEnv(input: string): ImportedEnvironment {
+    const variables: Array<{ key: string; value: string; enabled: boolean }> = []
+    for (const raw of input.split('\n')) {
+        const line = raw.trim()
+        if (!line || line.startsWith('#')) continue
+        const eq = line.indexOf('=')
+        if (eq === -1) continue
+        const key = line.slice(0, eq).trim()
+        if (!key) continue
+        let value = line.slice(eq + 1).trim()
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1)
         }
-        if (variables.length === 0) throw new Error('No variables found in .env file')
-        return { name: 'Imported environment', variables }
+        variables.push({ key, value, enabled: true })
     }
+    if (variables.length === 0) throw new Error('No variables found in .env file')
+    return { name: 'Imported environment', variables }
+}
 
-    const data = JSON.parse(input) as Record<string, unknown>
+function parseEnvironmentObject(data: unknown): ImportedEnvironment | null {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    const row = data as Record<string, unknown>
 
-    // Native zreq format
-    if (data.zreq && data.type === 'environment' && data.environment) {
-        const env = data.environment as { name?: string; variables?: unknown[] }
+    if (row.zreq && row.type === 'environment' && row.environment && typeof row.environment === 'object') {
+        const env = row.environment as { name?: string; variables?: unknown[] }
         return {
             name: typeof env.name === 'string' && env.name.trim() ? env.name.trim() : 'Imported environment',
-            variables: (env.variables ?? [])
-                .map((v) => {
-                    if (!v || typeof v !== 'object') return null
-                    const row = v as Record<string, unknown>
-                    const key = typeof row.key === 'string' ? row.key.trim() : ''
-                    if (!key) return null
-                    return {
-                        key,
-                        value: row.value === null || row.value === undefined ? '' : String(row.value),
-                        enabled: row.enabled !== false,
-                    }
-                })
-                .filter((v): v is { key: string; value: string; enabled: boolean } => v !== null),
+            variables: parseEnvVariables(env.variables ?? []),
         }
     }
 
-    // Postman environment format
-    if (Array.isArray(data.values)) {
+    if (Array.isArray(row.values)) {
         const name =
-            typeof data.name === 'string' && (data.name as string).trim()
-                ? (data.name as string).trim()
+            typeof row.name === 'string' && row.name.trim()
+                ? row.name.trim()
                 : 'Imported environment'
-        const variables = (data.values as unknown[])
-            .map((raw) => {
-                if (!raw || typeof raw !== 'object') return null
-                const row = raw as Record<string, unknown>
-                const key = typeof row.key === 'string' ? row.key.trim() : ''
-                if (!key) return null
-                const value = row.value === null || row.value === undefined ? '' : String(row.value)
-                return { key, value, enabled: row.enabled !== false }
-            })
-            .filter((v): v is { key: string; value: string; enabled: boolean } => v !== null)
-        return { name, variables }
+        return { name, variables: parseEnvVariables(row.values) }
+    }
+
+    // ZReq bundle entries / inline: { name?, variables: [...] }
+    if (Array.isArray(row.variables)) {
+        const name =
+            typeof row.name === 'string' && row.name.trim()
+                ? row.name.trim()
+                : 'Imported environment'
+        return { name, variables: parseEnvVariables(row.variables) }
+    }
+
+    return null
+}
+
+export function importEnvironments(input: string): ImportedEnvironment[] {
+    const trimmed = input.trimStart()
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        return [parseDotEnv(input)]
+    }
+
+    const data = JSON.parse(input) as unknown
+    if (Array.isArray(data)) {
+        const list = data.map((entry) => parseEnvironmentObject(entry))
+        if (list.some((item) => item == null)) {
+            throw new Error('Unknown environment format in array entry')
+        }
+        return list as ImportedEnvironment[]
+    }
+
+    if (data && typeof data === 'object') {
+        const row = data as Record<string, unknown>
+        if (
+            row.zreq &&
+            row.type === 'environments' &&
+            Array.isArray(row.environments)
+        ) {
+            const list = row.environments.map((entry) => parseEnvironmentObject(entry))
+            if (list.some((item) => item == null)) {
+                throw new Error('Unknown environment format in bundle entry')
+            }
+            return list as ImportedEnvironment[]
+        }
+        // Postman-style dump: { environments: [ { name, values }, ... ] }
+        if (Array.isArray(row.environments)) {
+            const list = row.environments.map((entry) => parseEnvironmentObject(entry))
+            if (list.some((item) => item == null)) {
+                throw new Error('Unknown environment format in bundle entry')
+            }
+            return list as ImportedEnvironment[]
+        }
+        const single = parseEnvironmentObject(row)
+        if (single) return [single]
     }
 
     throw new Error('Unknown environment format. Supported: Postwoman export, Postman environment, .env file')
 }
 
-export function importCollection(
-    jsonStr: string
-): Omit<Collection, 'id' | 'userId' | 'workspaceId' | 'createdAt' | 'updatedAt'> {
-    const data = JSON.parse(jsonStr)
-    // ZReq / legacy zreq format and Postman v2.1
-    if (data.zreq) {
-        const col = data.collection
+export function importEnvironment(input: string): ImportedEnvironment {
+    const list = importEnvironments(input)
+    return list[0]
+}
+
+function parseCollectionObject(data: unknown): ImportedCollection | null {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    const row = data as Record<string, any>
+
+    if (row.zreq && row.collection) {
+        const col = row.collection
         return {
             name: col.name,
             ...(col.description != null ? { description: col.description } : {}),
@@ -183,11 +243,55 @@ export function importCollection(
             items: reassignIds(col.items || []),
         }
     }
-    if (data.info && data.item) {
-        // Postman v2.1
-        return { name: data.info.name, items: importPostmanItems(data.item) }
+    if (row.zreq && row.name && row.items) {
+        return {
+            name: row.name,
+            ...(row.description != null ? { description: row.description } : {}),
+            ...(row.auth != null ? { auth: row.auth } : {}),
+            ...(row.variables != null ? { variables: row.variables } : {}),
+            items: reassignIds(row.items || []),
+        }
+    }
+    if (row.info && row.item) {
+        return { name: row.info.name, items: importPostmanItems(row.item) }
+    }
+    return null
+}
+
+export function importCollections(jsonStr: string): ImportedCollection[] {
+    const data = JSON.parse(jsonStr) as unknown
+    if (Array.isArray(data)) {
+        const list = data.map((entry) => parseCollectionObject(entry))
+        if (list.some((item) => item == null)) {
+            throw new Error('Unknown collection format in array entry')
+        }
+        return list as ImportedCollection[]
+    }
+    if (data && typeof data === 'object') {
+        const row = data as Record<string, unknown>
+        if (row.zreq && Array.isArray(row.collections)) {
+            const list = row.collections.map((entry) => parseCollectionObject({ zreq: true, collection: entry }))
+            if (list.some((item) => item == null)) {
+                throw new Error('Unknown collection format in bundle entry')
+            }
+            return list as ImportedCollection[]
+        }
+        if (Array.isArray(row.collections)) {
+            const list = row.collections.map((entry) => parseCollectionObject(entry))
+            if (list.some((item) => item == null)) {
+                throw new Error('Unknown collection format in bundle entry')
+            }
+            return list as ImportedCollection[]
+        }
+        const single = parseCollectionObject(row)
+        if (single) return [single]
     }
     throw new Error('Unknown collection format')
+}
+
+export function importCollection(jsonStr: string): ImportedCollection {
+    const list = importCollections(jsonStr)
+    return list[0]
 }
 
 function reassignIds(items: any[]): any[] {

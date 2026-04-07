@@ -19,6 +19,13 @@ import {
     type McpOAuthClientRow
 } from '@/lib/mcp-oauth-clients-api'
 import { useAuthStore } from '@/store/authStore'
+import type { SyncPushStrategy } from '@/lib/sync-preferences'
+import {
+    getSyncPushIntervalMs,
+    getSyncPushStrategy,
+    setSyncPushIntervalMinutes,
+    setSyncPushStrategy,
+} from '@/lib/sync-preferences'
 import {
     Dialog,
     DialogContent,
@@ -64,6 +71,12 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const [sslVerify, setSslVerify] = useState(() => get('sslVerify', true))
     const [maxSize, setMaxSize] = useState(() => get('maxSize', 50))
     const [autosave, setAutosave] = useState(() => get('autosave', false))
+    const [syncPushStrategy, setSyncPushStrategyState] = useState<SyncPushStrategy>(() =>
+        getSyncPushStrategy()
+    )
+    const [syncIntervalMin, setSyncIntervalMinState] = useState(() =>
+        Math.round(getSyncPushIntervalMs() / 60_000)
+    )
 
     const instances = useInstanceStore((s) => s.instances)
     const activeInstanceId = useInstanceStore((s) => s.activeInstanceId)
@@ -93,6 +106,12 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         null
     )
     const [mcpPendingDeleteId, setMcpPendingDeleteId] = useState<number | null>(null)
+
+    useEffect(() => {
+        if (!open) return
+        setSyncPushStrategyState(getSyncPushStrategy())
+        setSyncIntervalMinState(Math.round(getSyncPushIntervalMs() / 60_000))
+    }, [open])
 
     useEffect(() => {
         if (!open || section !== 'mcp' || !authToken) return
@@ -382,7 +401,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                     </button>
                                 </div>
 
-                                <div className="flex items-start justify-between">
+                                <div className="flex items-start justify-between border-b border-border pb-6">
                                     <div>
                                         <p className="font-medium">{t('settings.autosave')}</p>
                                         <p className="text-sm text-muted-foreground mt-0.5">
@@ -402,6 +421,90 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                             className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${autosave ? 'translate-x-4' : 'translate-x-0'}`}
                                         />
                                     </button>
+                                </div>
+
+                                <div className="flex flex-col gap-4 border-b border-border pb-6">
+                                    <div>
+                                        <p className="font-medium">{t('settings.syncPushTitle')}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
+                                            {t('settings.syncPushHint')}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-col gap-2 max-w-md">
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm">
+                                            <input
+                                                type="radio"
+                                                name="syncPush"
+                                                className="mt-1"
+                                                checked={syncPushStrategy === 'debounced'}
+                                                onChange={() => {
+                                                    setSyncPushStrategyState('debounced')
+                                                    setSyncPushStrategy('debounced')
+                                                }}
+                                            />
+                                            <span>
+                                                <span className="font-medium">{t('settings.syncPushDebounced')}</span>
+                                                <span className="block text-muted-foreground text-xs">
+                                                    {t('settings.syncPushDebouncedHint')}
+                                                </span>
+                                            </span>
+                                        </label>
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm">
+                                            <input
+                                                type="radio"
+                                                name="syncPush"
+                                                className="mt-1"
+                                                checked={syncPushStrategy === 'interval'}
+                                                onChange={() => {
+                                                    setSyncPushStrategyState('interval')
+                                                    setSyncPushStrategy('interval')
+                                                }}
+                                            />
+                                            <span>
+                                                <span className="font-medium">{t('settings.syncPushInterval')}</span>
+                                                <span className="block text-muted-foreground text-xs">
+                                                    {t('settings.syncPushIntervalHint')}
+                                                </span>
+                                            </span>
+                                        </label>
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm">
+                                            <input
+                                                type="radio"
+                                                name="syncPush"
+                                                className="mt-1"
+                                                checked={syncPushStrategy === 'manual'}
+                                                onChange={() => {
+                                                    setSyncPushStrategyState('manual')
+                                                    setSyncPushStrategy('manual')
+                                                }}
+                                            />
+                                            <span>
+                                                <span className="font-medium">{t('settings.syncPushManual')}</span>
+                                                <span className="block text-muted-foreground text-xs">
+                                                    {t('settings.syncPushManualHint')}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                    {syncPushStrategy === 'interval' ? (
+                                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                                            <label className="text-muted-foreground">{t('settings.syncPushEvery')}</label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={120}
+                                                value={syncIntervalMin}
+                                                onChange={(e) => setSyncIntervalMinState(+e.target.value)}
+                                                onBlur={() => {
+                                                    const v = Math.max(1, Math.min(120, syncIntervalMin || 2))
+                                                    setSyncIntervalMinState(v)
+                                                    setSyncPushIntervalMinutes(v)
+                                                }}
+                                                className="w-16 rounded border border-border bg-muted/30 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ring"
+                                            />
+                                            <span className="text-muted-foreground">{t('settings.syncPushMinutes')}</span>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
