@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/AzzamyDev/zreq/compare/v1.0.3...v1.1.0) (2026-04-08)
+
+
+### Features
+
+* enhance dialog components and add delete confirmation dialogs; improve auth handling with overrideParent flag ([8c0b9ec](https://github.com/AzzamyDev/zreq/commit/8c0b9ec69dd6b8d680a912e9f71093ff2321edcf))
+
+
+### Bug Fixes
+
+* perbaiki sync hapus koleksi dan default auth inherit ([296a5a9](https://github.com/AzzamyDev/zreq/commit/296a5a92e53ebc3df8da8a8d9d3542fcf6a3ce34))
+
 ## 1.0.0 (2026-04-07)
 
 
