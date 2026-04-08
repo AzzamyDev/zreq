@@ -31,7 +31,13 @@ export default function RequestTabs() {
 
     const bodyActive =
         activeRequest.body.type !== 'none' && !!activeRequest.body.content ? 1 : 0
-    const authActive = activeRequest.auth.type !== 'none' ? 1 : 0
+    const authActive =
+        activeRequest.auth.type !== 'none' ||
+        (activeRequest.auth.type === 'none' &&
+            !activeRequest.auth.overrideParent &&
+            !!activeRequest.folderId)
+            ? 1
+            : 0
 
     return (
         <Tabs

@@ -15,7 +15,8 @@ export type RequestBody = {
 }
 
 export type AuthConfig =
-    | { type: 'none' }
+    /** `overrideParent: true` = user explicitly chose "No Auth" under a folder (blocks folder/collection auth). */
+    | { type: 'none'; overrideParent?: boolean }
     | { type: 'inherit' }
     | { type: 'bearer'; token: string }
     | { type: 'basic'; username: string; password: string }

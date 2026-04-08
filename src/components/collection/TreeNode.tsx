@@ -20,6 +20,8 @@ import {
     ContextMenuTrigger,
     ContextMenuSeparator,
 } from '../ui/context-menu'
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from '../ui/dialog'
+import { Button } from '../ui/button'
 import { useCollection, type TreeDropPayload } from '../../hooks/useCollection'
 import { useAppStore } from '../../store'
 import RenameDialog from './RenameDialog'
@@ -83,6 +85,7 @@ function FolderTreeNode({
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [moreMenuOpen, setMoreMenuOpen] = useState(false)
     const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
     const { deleteItem, renameItem, addFolder, addRequest, updateFolderSettings } = useCollection()
 
@@ -248,7 +251,7 @@ function FolderTreeNode({
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setMoreMenuOpen(false)
-                                                handleDelete()
+                                                setDeleteConfirmOpen(true)
                                             }}
                                         >
                                             {t('common.delete')}
@@ -276,7 +279,7 @@ function FolderTreeNode({
                     <ContextMenuItem onClick={() => setRenameOpen(true)}>{t('common.rename')}</ContextMenuItem>
                     <ContextMenuItem onClick={() => setSettingsOpen(true)}>{t('common.settings')}</ContextMenuItem>
                     <ContextMenuSeparator />
-                    <ContextMenuItem variant="destructive" onClick={handleDelete}>
+                    <ContextMenuItem variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>
                         {t('common.delete')}
                     </ContextMenuItem>
                 </ContextMenuContent>
@@ -322,6 +325,28 @@ function FolderTreeNode({
                 folder={folder}
                 onSave={(updates) => updateFolderSettings(collectionId, folder.id, updates)}
             />
+            <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogTitle>{t('common.delete')}</DialogTitle>
+                    <p className="text-sm text-muted-foreground">
+                        Delete this folder and all nested items?
+                    </p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={async () => {
+                                await handleDelete()
+                                setDeleteConfirmOpen(false)
+                            }}
+                        >
+                            {t('common.delete')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
@@ -336,6 +361,7 @@ function RequestTreeNode({
     const { t } = useTranslation()
     const [renameOpen, setRenameOpen] = useState(false)
     const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
     const { deleteItem, renameItem, duplicateItem } = useCollection()
     const { loadRequestItem, selectedItemId } = useAppStore()
@@ -450,7 +476,7 @@ function RequestTreeNode({
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setMoreMenuOpen(false)
-                                                handleDelete()
+                                                setDeleteConfirmOpen(true)
                                             }}
                                         >
                                             {t('common.delete')}
@@ -475,7 +501,7 @@ function RequestTreeNode({
                     <ContextMenuItem onClick={() => setRenameOpen(true)}>{t('common.rename')}</ContextMenuItem>
                     <ContextMenuItem onClick={() => duplicateItem(collectionId, reqItem.id)}>{t('collection.duplicate')}</ContextMenuItem>
                     <ContextMenuSeparator />
-                    <ContextMenuItem variant="destructive" onClick={handleDelete}>
+                    <ContextMenuItem variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>
                         {t('common.delete')}
                     </ContextMenuItem>
                 </ContextMenuContent>
@@ -488,6 +514,28 @@ function RequestTreeNode({
                 initialName={reqItem.name}
                 title={t('collection.renameRequest')}
             />
+            <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogTitle>{t('common.delete')}</DialogTitle>
+                    <p className="text-sm text-muted-foreground">
+                        Delete this request?
+                    </p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={async () => {
+                                await handleDelete()
+                                setDeleteConfirmOpen(false)
+                            }}
+                        >
+                            {t('common.delete')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

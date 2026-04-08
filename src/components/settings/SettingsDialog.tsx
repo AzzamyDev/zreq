@@ -33,6 +33,12 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog'
+import appPkg from '../../../package.json'
+import tauriConfig from '../../../src-tauri/tauri.conf.json'
+import backendPkg from '../../../../backend/package.json'
+
+const cleanSemver = (v?: string) => (v ?? '').replace(/^[~^]/, '')
+const majorSemver = (v?: string) => cleanSemver(v).split('.')[0] || cleanSemver(v)
 
 function useSettings() {
     const get = (key: string, fallback: any) => {
@@ -116,18 +122,18 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     useEffect(() => {
         if (!open || section !== 'mcp' || !authToken) return
         let cancelled = false
-        ;(async () => {
-            setMcpListBusy(true)
-            setMcpListErr('')
-            try {
-                const rows = await listMcpOAuthClients()
-                if (!cancelled) setMcpClients(rows)
-            } catch {
-                if (!cancelled) setMcpListErr(t('settings.mcpErrors.listFailed'))
-            } finally {
-                if (!cancelled) setMcpListBusy(false)
-            }
-        })()
+            ; (async () => {
+                setMcpListBusy(true)
+                setMcpListErr('')
+                try {
+                    const rows = await listMcpOAuthClients()
+                    if (!cancelled) setMcpClients(rows)
+                } catch {
+                    if (!cancelled) setMcpListErr(t('settings.mcpErrors.listFailed'))
+                } finally {
+                    if (!cancelled) setMcpListBusy(false)
+                }
+            })()
         return () => {
             cancelled = true
         }
@@ -181,8 +187,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     token_endpoint_auth_method: formAuthMethod
                 })
                 if (created.client_secret) {
-                        setMcpLastSecret({ client_id: created.client_id, client_secret: created.client_secret })
-                    }
+                    setMcpLastSecret({ client_id: created.client_id, client_secret: created.client_secret })
+                }
             }
             const rows = await listMcpOAuthClients()
             setMcpClients(rows)
@@ -246,8 +252,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     v.code === 'invalid_url'
                         ? 'instance.invalidUrl'
                         : v.code === 'unreachable'
-                          ? 'instance.backendUnreachable'
-                          : 'instance.backendInvalidResponse'
+                            ? 'instance.backendUnreachable'
+                            : 'instance.backendInvalidResponse'
                 )
             )
             setQaBusy(false)
@@ -268,15 +274,15 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const normalizedMcpBase = mcpBaseUrl.trim().replace(/\/+$/, '')
     const mcpEndpoints = normalizedMcpBase
         ? {
-              mcp: `${normalizedMcpBase}/mcp`,
-              register: `${normalizedMcpBase}/mcp/oauth/register`,
-              authorize: `${normalizedMcpBase}/mcp/oauth/authorize`,
-              token: `${normalizedMcpBase}/mcp/oauth/token`,
-              callback: `${normalizedMcpBase}/mcp/oauth/callback`,
-              localLogin: `${normalizedMcpBase}/mcp/oauth/local-login`,
-              wellKnownAuthz: `${normalizedMcpBase}/.well-known/oauth-authorization-server`,
-              wellKnownResource: `${normalizedMcpBase}/.well-known/oauth-protected-resource`
-          }
+            mcp: `${normalizedMcpBase}/mcp`,
+            register: `${normalizedMcpBase}/mcp/oauth/register`,
+            authorize: `${normalizedMcpBase}/mcp/oauth/authorize`,
+            token: `${normalizedMcpBase}/mcp/oauth/token`,
+            callback: `${normalizedMcpBase}/mcp/oauth/callback`,
+            localLogin: `${normalizedMcpBase}/mcp/oauth/local-login`,
+            wellKnownAuthz: `${normalizedMcpBase}/.well-known/oauth-authorization-server`,
+            wellKnownResource: `${normalizedMcpBase}/.well-known/oauth-protected-resource`
+        }
         : null
 
     return (
@@ -292,8 +298,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                             key={item.id}
                             onClick={() => setSection(item.id)}
                             className={`flex items-center gap-2.5 rounded px-3 py-2 text-sm text-left transition-colors ${section === item.id
-                                    ? 'bg-accent/20 text-foreground'
-                                    : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                                ? 'bg-accent/20 text-foreground'
+                                : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
                                 }`}
                         >
                             {item.icon}
@@ -902,12 +908,20 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                             <h2 className="text-xl font-semibold">{t('settings.aboutTitle')}</h2>
                             <div className="space-y-4 text-sm">
                                 <div className="flex gap-2">
+                                    <span className="text-muted-foreground w-24">Product</span>
+                                    <span>{tauriConfig.productName}</span>
+                                </div>
+                                <div className="flex gap-2">
                                     <span className="text-muted-foreground w-24">{t('settings.version')}</span>
-                                    <span>0.1.0</span>
+                                    <span>{tauriConfig.version}</span>
                                 </div>
                                 <div className="flex gap-2">
                                     <span className="text-muted-foreground w-24">{t('settings.builtWith')}</span>
-                                    <span>Tauri 2 + React + NestJS</span>
+                                    <span>
+                                        Tauri {majorSemver(appPkg.dependencies['@tauri-apps/api'])} + React{' '}
+                                        {majorSemver(appPkg.dependencies.react)} + NestJS{' '}
+                                        {majorSemver(backendPkg.dependencies['@nestjs/common'])}
+                                    </span>
                                 </div>
                             </div>
                         </div>
