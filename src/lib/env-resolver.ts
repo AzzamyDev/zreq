@@ -196,9 +196,9 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
     }
     if (auth.type === 'bearer' && auth.token) {
         headers['Authorization'] = `Bearer ${resolveEnvVars(auth.token, vars)}`
-    } else if (auth.type === 'basic' && auth.username) {
-        const username = resolveEnvVars(auth.username, vars)
-        const password = resolveEnvVars(auth.password || '', vars)
+    } else if (auth.type === 'basic') {
+        const username = resolveEnvVars(auth.username ?? '', vars)
+        const password = resolveEnvVars(auth.password ?? '', vars)
         headers['Authorization'] = `Basic ${btoa(`${username}:${password}`)}`
     } else if (auth.type === 'jwt' && auth.token) {
         const prefix = auth.prefix || 'Bearer'
