@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useTranslation } from 'react-i18next'
-import { Settings, Palette, Info, Server, KeyRound, X } from 'lucide-react'
-import { setThemeAccent } from '@/lib/themeAccent'
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog'
 import { setAppLocale } from '@/i18n/config'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { Button } from '../ui/button'
-import { Input } from '../ui/input'
-import { useInstanceStore } from '@/store/instanceStore'
 import { applyInstanceSwitch } from '@/lib/apply-instance-switch'
-import { validatezreqBackend } from '@/lib/probe-backend'
-import { MCP_AGENT_PRESETS, parseRedirectUrisField } from '@/lib/mcp-oauth-redirects'
 import {
     createMcpOAuthClient,
     deleteMcpOAuthClient,
@@ -18,7 +15,8 @@ import {
     updateMcpOAuthClient,
     type McpOAuthClientRow
 } from '@/lib/mcp-oauth-clients-api'
-import { useAuthStore } from '@/store/authStore'
+import { MCP_AGENT_PRESETS, parseRedirectUrisField } from '@/lib/mcp-oauth-redirects'
+import { validatezreqBackend } from '@/lib/probe-backend'
 import type { SyncPushStrategy } from '@/lib/sync-preferences'
 import {
     getSyncPushIntervalMs,
@@ -26,16 +24,17 @@ import {
     setSyncPushIntervalMinutes,
     setSyncPushStrategy,
 } from '@/lib/sync-preferences'
-import {
-    Dialog,
-    DialogContent,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle
-} from '@/components/ui/dialog'
+import { setThemeAccent } from '@/lib/themeAccent'
+import { useAuthStore } from '@/store/authStore'
+import { useInstanceStore } from '@/store/instanceStore'
+import { Info, KeyRound, Palette, Server, Settings, X } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import appPkg from '../../../package.json'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
-import backendPkg from '../../../../backend/package.json'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 
 const cleanSemver = (v?: string) => (v ?? '').replace(/^[~^]/, '')
 const majorSemver = (v?: string) => cleanSemver(v).split('.')[0] || cleanSemver(v)
@@ -919,8 +918,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                     <span className="text-muted-foreground w-24">{t('settings.builtWith')}</span>
                                     <span>
                                         Tauri {majorSemver(appPkg.dependencies['@tauri-apps/api'])} + React{' '}
-                                        {majorSemver(appPkg.dependencies.react)} + NestJS{' '}
-                                        {majorSemver(backendPkg.dependencies['@nestjs/common'])}
+                                        {majorSemver(appPkg.dependencies.react)}
                                     </span>
                                 </div>
                             </div>
