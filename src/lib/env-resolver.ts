@@ -190,19 +190,34 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
         headers[resolveEnvVars(h.key, vars)] = resolveEnvVars(h.value || '', vars)
     }
 
-    let auth = req.auth || { type: 'none' }
+    let auth: AuthConfig = req.auth || { type: 'none' }
     if (auth.type === 'inherit' && req.collectionId != null) {
         auth = resolveInheritedAuth(req.collectionId, req.folderId)
     }
-    if (auth.type === 'bearer' && auth.token) {
-        headers['Authorization'] = `Bearer ${resolveEnvVars(auth.token, vars)}`
+    // Legacy/default: many saved rows use `{ type: 'none' }` under a folder though the intent is "inherit".
+    // Respect true "No Auth" only when the user picked it in the Auth tab (`overrideParent`).
+    if (
+        auth.type === 'none' &&
+        req.collectionId != null &&
+        req.folderId &&
+        !auth.overrideParent
+    ) {
+        const inherited = resolveInheritedAuth(req.collectionId, req.folderId)
+        if (inherited.type !== 'none') auth = inherited
+    }
+    if (auth.type === 'bearer') {
+        const tok = resolveEnvVars(auth.token ?? '', vars).trim()
+        if (tok) headers['Authorization'] = `Bearer ${tok}`
     } else if (auth.type === 'basic') {
         const username = resolveEnvVars(auth.username ?? '', vars)
         const password = resolveEnvVars(auth.password ?? '', vars)
         headers['Authorization'] = `Basic ${btoa(`${username}:${password}`)}`
-    } else if (auth.type === 'jwt' && auth.token) {
-        const prefix = auth.prefix || 'Bearer'
-        headers['Authorization'] = `${prefix} ${resolveEnvVars(auth.token, vars)}`
+    } else if (auth.type === 'jwt') {
+        const tok = resolveEnvVars(auth.token ?? '', vars).trim()
+        if (tok) {
+            const prefix = (auth.prefix || 'Bearer').trim() || 'Bearer'
+            headers['Authorization'] = `${prefix} ${tok}`
+        }
     }
 
     let body: string | null = null

@@ -4,7 +4,6 @@ import { createPortal, flushSync } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../store'
 import { useEnvironment } from '../../hooks/useEnvironment'
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Input } from '../ui/input'
 import { Button } from '../ui/button'
 import {
@@ -258,6 +257,69 @@ function VarTemplateField({
 
     const [openVarSegIndex, setOpenVarSegIndex] = useState<number | null>(null)
     const [editVarValue, setEditVarValue] = useState('')
+    const [varPanelPos, setVarPanelPos] = useState<{ x: number; y: number } | null>(null)
+    const varChipAnchorRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+    const varValuePanelRef = useRef<HTMLDivElement>(null)
+
+    const repositionVarValuePanel = useCallback(() => {
+        if (openVarSegIndex == null) return
+        const el = varChipAnchorRefs.current.get(openVarSegIndex)
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        const panelW = 288
+        const pad = 8
+        const x = Math.max(pad, Math.min(r.left, window.innerWidth - panelW - pad))
+        const y = Math.min(r.bottom + 6, window.innerHeight - pad)
+        setVarPanelPos({ x, y })
+    }, [openVarSegIndex])
+
+    useLayoutEffect(() => {
+        if (openVarSegIndex == null) {
+            setVarPanelPos(null)
+            return
+        }
+        repositionVarValuePanel()
+        window.addEventListener('scroll', repositionVarValuePanel, true)
+        window.addEventListener('resize', repositionVarValuePanel)
+        return () => {
+            window.removeEventListener('scroll', repositionVarValuePanel, true)
+            window.removeEventListener('resize', repositionVarValuePanel)
+        }
+    }, [openVarSegIndex, repositionVarValuePanel, value])
+
+    useEffect(() => {
+        if (openVarSegIndex == null) return
+        const onDown = (e: MouseEvent) => {
+            const t = e.target as HTMLElement
+            if (t.closest('[data-var-value-panel]')) return
+            const anchor = varChipAnchorRefs.current.get(openVarSegIndex)
+            if (anchor?.contains(t)) return
+            setOpenVarSegIndex(null)
+        }
+        document.addEventListener('mousedown', onDown, true)
+        return () => document.removeEventListener('mousedown', onDown, true)
+    }, [openVarSegIndex])
+
+    useEffect(() => {
+        if (openVarSegIndex == null) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.stopPropagation()
+                setOpenVarSegIndex(null)
+            }
+        }
+        document.addEventListener('keydown', onKey, true)
+        return () => document.removeEventListener('keydown', onKey, true)
+    }, [openVarSegIndex])
+
+    useEffect(() => {
+        if (openVarSegIndex == null) return
+        const id = window.setTimeout(() => {
+            const inp = varValuePanelRef.current?.querySelector('input')
+            if (inp instanceof HTMLInputElement) inp.focus()
+        }, 0)
+        return () => clearTimeout(id)
+    }, [openVarSegIndex])
 
     const openVarName =
         openVarSegIndex != null && segments[openVarSegIndex]?.type === 'var'
@@ -276,7 +338,7 @@ function VarTemplateField({
         hoverCloseTimerRef.current = setTimeout(() => {
             setOpenVarSegIndex(null)
             hoverCloseTimerRef.current = null
-        }, 220)
+        }, 450)
     }
 
     useEffect(() => () => cancelHoverClose(), [])
@@ -548,15 +610,12 @@ function VarTemplateField({
         setOpenVarSegIndex(i)
     }
 
-    const onVarPopoverOpenChange = (o: boolean, i: number) => {
-        if (o) {
-            cancelHoverClose()
-            setOpenVarSegIndex(i)
-        } else {
-            cancelHoverClose()
-            setOpenVarSegIndex(null)
-        }
-    }
+    const varPanelSeg =
+        openVarSegIndex != null && segments[openVarSegIndex]?.type === 'var'
+            ? (segments[openVarSegIndex] as Extract<UrlSegment, { type: 'var' }>)
+            : null
+    const varPanelSrc = varPanelSeg ? getVariableSource(varPanelSeg.name, variableSuggestionScope) : null
+    const varPanelResolved = varPanelSrc != null && varPanelSrc !== 'none'
 
     return (
         <>
@@ -581,165 +640,94 @@ function VarTemplateField({
                         const varSrc = getVariableSource(seg.name, variableSuggestionScope)
                         const resolved = varSrc !== 'none'
                         return (
-                            <Popover
+                            <div
                                 key={`var-seg-${i}`}
-                                modal={false}
-                                open={openVarSegIndex === i}
-                                onOpenChange={(o) => onVarPopoverOpenChange(o, i)}
+                                ref={(el) => {
+                                    if (el) varChipAnchorRefs.current.set(i, el)
+                                    else varChipAnchorRefs.current.delete(i)
+                                }}
+                                className={cn(
+                                    'inline-flex h-[1.375rem] max-w-[min(100%,220px)] shrink-0 items-stretch overflow-hidden rounded-full px-0.5 font-mono text-xs outline-none focus-within:ring-1',
+                                    resolved
+                                        ? 'border border-[color-mix(in_srgb,var(--border)_90%,transparent)] bg-[color-mix(in_srgb,#44475a_42%,#282a36)] focus-within:ring-[var(--dracula-cyan)]/25'
+                                        : 'border border-dashed border-[var(--dracula-red)]/85 bg-[color-mix(in_srgb,#ff5555_22%,#282a36)] focus-within:ring-[var(--dracula-red)]/35',
+                                )}
+                                onPointerDownCapture={(e) => {
+                                    if (performance.now() < blockVarChipHoverOpenUntilRef.current) {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                    }
+                                }}
+                                onMouseEnter={() => {
+                                    if (performance.now() < blockVarChipHoverOpenUntilRef.current) return
+                                    openVarPanel(i)
+                                }}
+                                onMouseLeave={(e) => {
+                                    const rel = e.relatedTarget as HTMLElement | null
+                                    if (rel?.closest('[data-var-value-panel]')) return
+                                    scheduleHoverClose()
+                                }}
                             >
-                                <div
-                                    className={cn(
-                                        'inline-flex h-[1.375rem] max-w-[min(100%,220px)] shrink-0 items-stretch overflow-hidden rounded-full px-0.5 font-mono text-xs outline-none focus-within:ring-1',
-                                        resolved
-                                            ? 'border border-[color-mix(in_srgb,var(--border)_90%,transparent)] bg-[color-mix(in_srgb,#44475a_42%,#282a36)] focus-within:ring-[var(--dracula-cyan)]/25'
-                                            : 'border border-dashed border-[var(--dracula-red)]/85 bg-[color-mix(in_srgb,#ff5555_22%,#282a36)] focus-within:ring-[var(--dracula-red)]/35',
-                                    )}
-                                    onPointerDownCapture={(e) => {
-                                        if (performance.now() < blockVarChipHoverOpenUntilRef.current) {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                        }
-                                    }}
-                                    onMouseEnter={() => {
-                                        if (performance.now() < blockVarChipHoverOpenUntilRef.current) return
-                                        openVarPanel(i)
-                                    }}
-                                    onMouseLeave={scheduleHoverClose}
-                                >
-                                    <div className="inline-flex min-w-0 flex-1 items-stretch">
-                                        <span
-                                            className={cn(
-                                                'pointer-events-none self-center pl-0.5 select-none',
-                                                resolved
-                                                    ? 'text-[var(--dracula-cyan)]'
-                                                    : 'text-[color-mix(in_srgb,var(--dracula-pink)_92%,white)]',
-                                            )}
-                                        >
-                                            {'{{'}
-                                        </span>
-                                        <input
-                                            ref={(el) => setSegEl(i, el)}
-                                            type="text"
-                                            value={seg.name}
-                                            aria-label="Variable name"
-                                            aria-invalid={!resolved}
-                                            onChange={(e) => {
-                                                const v = e.target.value.replace(/[^a-zA-Z0-9_.-]/g, '')
-                                                setFromSegments(updateVarSegmentName(segments, i, v))
-                                            }}
-                                            onKeyDown={(e) => {
-                                                const el = e.currentTarget
-                                                const pos = el.selectionStart ?? 0
-                                                const end = el.selectionEnd ?? 0
-                                                if (e.key === 'ArrowLeft' && pos === end && pos === 0) {
-                                                    e.preventDefault()
-                                                    focusAdjacentSegment(i, -1)
-                                                }
-                                                if (e.key === 'ArrowRight' && pos === end && pos === seg.name.length) {
-                                                    e.preventDefault()
-                                                    focusAdjacentSegment(i, 1)
-                                                }
-                                            }}
-                                            className={cn(
-                                                'min-w-0 max-w-[140px] shrink-0 grow-0 bg-transparent py-0 pr-px text-xs outline-none focus:ring-0',
-                                                resolved
-                                                    ? 'text-[var(--dracula-cyan)]'
-                                                    : 'text-[color-mix(in_srgb,var(--dracula-pink)_92%,white)]',
-                                            )}
-                                            size={1}
-                                            style={{
-                                                width: `${Math.max(1.5, seg.name.length + 0.35)}ch`,
-                                                maxWidth: `${Math.max(1.5, seg.name.length + 0.35)}ch`,
-                                                minWidth: 0,
-                                            }}
-                                            spellCheck={false}
-                                        />
-                                        <span
-                                            className={cn(
-                                                'pointer-events-none self-center pr-0.5 select-none',
-                                                resolved
-                                                    ? 'text-[var(--dracula-cyan)]'
-                                                    : 'text-[color-mix(in_srgb,var(--dracula-pink)_92%,white)]',
-                                            )}
-                                        >
-                                            {'}}'}
-                                        </span>
-                                    </div>
-                                    {/** Anchor for Base UI Popover; no visible “⋯” control */}
-                                    <PopoverTrigger
-                                        type="button"
-                                        title="Variable value"
-                                        tabIndex={-1}
-                                        aria-hidden
-                                        className="pointer-events-none h-px w-px shrink-0 overflow-hidden border-0 p-0 opacity-0"
-                                        onMouseEnter={cancelHoverClose}
-                                        onMouseLeave={scheduleHoverClose}
-                                    />
-                                </div>
-                                <PopoverContent
-                                    className="w-72"
-                                    align="start"
-                                    sideOffset={6}
-                                    initialFocus={false}
-                                    finalFocus={false}
-                                    onMouseEnter={cancelHoverClose}
-                                    onMouseLeave={scheduleHoverClose}
-                                >
-                                    <div className="flex flex-col gap-2">
-                                        <p className="text-xs font-medium text-muted-foreground">
-                                            <span
-                                                className={cn(
-                                                    'mr-1 inline-flex size-4 items-center justify-center rounded text-[10px] font-bold',
-                                                    resolved
-                                                        ? varSrc === 'environment'
-                                                            ? 'bg-[var(--dracula-green)]/25 text-[var(--dracula-green)]'
-                                                            : 'bg-[var(--dracula-cyan)]/25 text-[var(--dracula-cyan)]'
-                                                        : 'bg-[var(--dracula-red)]/25 text-[var(--dracula-red)]',
-                                                )}
-                                            >
-                                                {resolved ? (varSrc === 'environment' ? 'E' : 'C') : '!'}
-                                            </span>
-                                            {sourceLabel(seg.name)}
-                                        </p>
-                                        <p className="text-[11px] text-muted-foreground">
-                                            {t('vars.editChipHint')}
-                                        </p>
-                                        <p className="text-[11px] text-muted-foreground">{t('vars.value')}</p>
-                                        <Input
-                                            value={editVarValue}
-                                            onChange={(e) => setEditVarValue(e.target.value)}
-                                            className="font-mono text-xs placeholder:text-xs"
-                                            placeholder={t('vars.value')}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') void handleSaveVarValue()
-                                            }}
-                                        />
-                                        <div className="flex justify-end gap-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-7 text-xs"
-                                                onClick={() => setOpenVarSegIndex(null)}
-                                            >
-                                                {t('common.close')}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                className="h-7 text-xs"
-                                                disabled={!activeEnvironmentId}
-                                                onClick={() => void handleSaveVarValue()}
-                                            >
-                                                {t('vars.saveToEnvironment')}
-                                            </Button>
-                                        </div>
-                                        {!activeEnvironmentId && (
-                                            <p className="text-[11px] text-muted-foreground">
-                                                {t('vars.selectEnvHint')}
-                                            </p>
+                                <div className="inline-flex min-w-0 flex-1 items-stretch">
+                                    <span
+                                        className={cn(
+                                            'pointer-events-none self-center pl-0.5 select-none',
+                                            resolved
+                                                ? 'text-[var(--dracula-cyan)]'
+                                                : 'text-[color-mix(in_srgb,var(--dracula-pink)_92%,white)]',
                                         )}
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
+                                    >
+                                        {'{{'}
+                                    </span>
+                                    <input
+                                        ref={(el) => setSegEl(i, el)}
+                                        type="text"
+                                        value={seg.name}
+                                        aria-label="Variable name"
+                                        aria-invalid={!resolved}
+                                        onChange={(e) => {
+                                            const v = e.target.value.replace(/[^a-zA-Z0-9_.-]/g, '')
+                                            setFromSegments(updateVarSegmentName(segments, i, v))
+                                        }}
+                                        onKeyDown={(e) => {
+                                            const el = e.currentTarget
+                                            const pos = el.selectionStart ?? 0
+                                            const end = el.selectionEnd ?? 0
+                                            if (e.key === 'ArrowLeft' && pos === end && pos === 0) {
+                                                e.preventDefault()
+                                                focusAdjacentSegment(i, -1)
+                                            }
+                                            if (e.key === 'ArrowRight' && pos === end && pos === seg.name.length) {
+                                                e.preventDefault()
+                                                focusAdjacentSegment(i, 1)
+                                            }
+                                        }}
+                                        className={cn(
+                                            'min-w-0 max-w-[140px] shrink-0 grow-0 bg-transparent py-0 pr-px text-xs outline-none focus:ring-0',
+                                            resolved
+                                                ? 'text-[var(--dracula-cyan)]'
+                                                : 'text-[color-mix(in_srgb,var(--dracula-pink)_92%,white)]',
+                                        )}
+                                        size={1}
+                                        style={{
+                                            width: `${Math.max(1.5, seg.name.length + 0.35)}ch`,
+                                            maxWidth: `${Math.max(1.5, seg.name.length + 0.35)}ch`,
+                                            minWidth: 0,
+                                        }}
+                                        spellCheck={false}
+                                    />
+                                    <span
+                                        className={cn(
+                                            'pointer-events-none self-center pr-0.5 select-none',
+                                            resolved
+                                                ? 'text-[var(--dracula-cyan)]'
+                                                : 'text-[color-mix(in_srgb,var(--dracula-pink)_92%,white)]',
+                                        )}
+                                    >
+                                        {'}}'}
+                                    </span>
+                                </div>
+                            </div>
                         )
                     }
 
@@ -915,6 +903,72 @@ function VarTemplateField({
                     )
                 })}
             </div>
+
+            {varPanelSeg &&
+                varPanelPos &&
+                createPortal(
+                    <div
+                        ref={varValuePanelRef}
+                        data-var-value-panel
+                        role="dialog"
+                        aria-label={t('vars.value')}
+                        className="fixed z-[200] flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-md border border-border bg-popover p-3 shadow-md"
+                        style={{ left: varPanelPos.x, top: varPanelPos.y }}
+                        onMouseEnter={cancelHoverClose}
+                        onMouseLeave={scheduleHoverClose}
+                    >
+                        <div className="flex flex-col gap-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                                <span
+                                    className={cn(
+                                        'mr-1 inline-flex size-4 items-center justify-center rounded text-[10px] font-bold',
+                                        varPanelResolved
+                                            ? varPanelSrc === 'environment'
+                                                ? 'bg-[var(--dracula-green)]/25 text-[var(--dracula-green)]'
+                                                : 'bg-[var(--dracula-cyan)]/25 text-[var(--dracula-cyan)]'
+                                            : 'bg-[var(--dracula-red)]/25 text-[var(--dracula-red)]',
+                                    )}
+                                >
+                                    {varPanelResolved ? (varPanelSrc === 'environment' ? 'E' : 'C') : '!'}
+                                </span>
+                                {sourceLabel(varPanelSeg.name)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">{t('vars.editChipHint')}</p>
+                            <p className="text-[11px] text-muted-foreground">{t('vars.value')}</p>
+                            <Input
+                                value={editVarValue}
+                                onChange={(e) => setEditVarValue(e.target.value)}
+                                className="font-mono text-xs placeholder:text-xs"
+                                placeholder={t('vars.value')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') void handleSaveVarValue()
+                                }}
+                            />
+                            <div className="flex justify-end gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => setOpenVarSegIndex(null)}
+                                >
+                                    {t('common.close')}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    disabled={!activeEnvironmentId}
+                                    onClick={() => void handleSaveVarValue()}
+                                >
+                                    {t('vars.saveToEnvironment')}
+                                </Button>
+                            </div>
+                            {!activeEnvironmentId && (
+                                <p className="text-[11px] text-muted-foreground">{t('vars.selectEnvHint')}</p>
+                            )}
+                        </div>
+                    </div>,
+                    document.body,
+                )}
 
             {templateSuggest &&
                 createPortal(

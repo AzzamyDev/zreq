@@ -11,6 +11,7 @@ import {
 import { Button } from '../ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { preventDrawerDismissForPortaledLayer, preventDrawerFocusDismiss } from '@/lib/drawer-outside-guard'
 import AuthEditor from '../request/AuthEditor'
 import KVEditor from '../request/KVEditor'
 import type { Collection, AuthConfig, EnvVariable, KV } from '../../types'
@@ -99,10 +100,8 @@ export default function CollectionSettingsDialog({ open, onClose, collection, on
             <DrawerContent
                 className="top-0 right-auto bottom-0 left-0 mt-0 flex h-full max-h-dvh w-[min(100vw,44rem)] flex-col gap-0 rounded-none rounded-r-xl border-r p-0"
                 onOpenAutoFocus={(e) => e.preventDefault()}
-                onPointerDownOutside={(e) => {
-                    const el = e.target as HTMLElement
-                    if (el.closest('[data-slot="select-content"]')) e.preventDefault()
-                }}
+                onPointerDownOutside={(e) => preventDrawerDismissForPortaledLayer(e, e.target)}
+                onFocusOutside={(e) => preventDrawerFocusDismiss(e)}
             >
                 <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
                     <DrawerTitle className="font-heading text-base font-medium">{t('collectionSettings.title')}</DrawerTitle>

@@ -1,13 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { XIcon } from 'lucide-react'
-import {
-    Drawer,
-    DrawerClose,
-    DrawerContent,
-    DrawerFooter,
-    DrawerTitle,
-} from '@/components/ui/drawer'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '../ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -101,29 +95,23 @@ export default function FolderSettingsDialog({
     )
 
     return (
-        <Drawer
-            direction="left"
+        <Dialog
             open={open}
             onOpenChange={(v) => {
                 if (!v) onClose()
             }}
         >
-            <DrawerContent
-                className="top-0 right-auto bottom-0 left-0 mt-0 flex h-full max-h-dvh w-[min(100vw,44rem)] flex-col gap-0 rounded-none rounded-r-xl border-r p-0"
-                onOpenAutoFocus={(e) => e.preventDefault()}
-                onPointerDownOutside={(e) => {
-                    const el = e.target as HTMLElement
-                    if (el.closest('[data-slot="select-content"]')) e.preventDefault()
-                }}
+            <DialogContent
+                showCloseButton={false}
+                className="flex h-[86vh] max-h-[760px] w-[96vw] !max-w-[96vw] flex-col overflow-hidden rounded-xl p-0 sm:w-[980px] sm:!max-w-[980px]"
+                initialFocus={false}
             >
-                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
-                    <DrawerTitle className="font-heading text-base font-medium">{t('folderSettings.title')}</DrawerTitle>
-                    <DrawerClose asChild>
-                        <Button variant="ghost" size="icon-sm" type="button" className="shrink-0">
-                            <XIcon />
-                            <span className="sr-only">{t('common.close')}</span>
-                        </Button>
-                    </DrawerClose>
+                <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+                    <DialogTitle className="font-heading text-base font-medium">{t('folderSettings.title')}</DialogTitle>
+                    <Button variant="ghost" size="icon-sm" type="button" className="shrink-0" onClick={onClose}>
+                        <XIcon />
+                        <span className="sr-only">{t('common.close')}</span>
+                    </Button>
                 </div>
 
                 <div ref={selectPortalRef} className="relative flex min-h-0 flex-1">
@@ -136,7 +124,7 @@ export default function FolderSettingsDialog({
                         {navBtn('variables', t('collectionSettings.variables'))}
                     </nav>
 
-                    <ScrollArea className="min-h-0 flex-1" data-vaul-no-drag>
+                    <ScrollArea className="min-h-0 flex-1">
                         <div className="p-4 pr-5">
                             {section === 'general' && (
                                 <div className="space-y-4">
@@ -199,15 +187,15 @@ export default function FolderSettingsDialog({
                     </ScrollArea>
                 </div>
 
-                <DrawerFooter className="flex flex-row justify-end gap-2 border-t bg-muted/30">
+                <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t bg-muted/30 px-3">
                     <Button variant="outline" onClick={onClose} disabled={saving}>
                         {t('common.cancel')}
                     </Button>
                     <Button onClick={handleSave} disabled={saving}>
                         {saving ? t('common.saving') : t('common.save')}
                     </Button>
-                </DrawerFooter>
-            </DrawerContent>
-        </Drawer>
+                </div>
+            </DialogContent>
+        </Dialog>
     )
 }

@@ -42,7 +42,7 @@ export default function AuthEditor({
                     value={auth.type}
                     onValueChange={(value) => {
                         const next = value as AuthConfig['type']
-                        if (next === 'none') onChange({ type: 'none' })
+                        if (next === 'none') onChange({ type: 'none', overrideParent: true })
                         else if (next === 'inherit') onChange({ type: 'inherit' })
                         else if (next === 'bearer') onChange({ type: 'bearer', token: '' })
                         else if (next === 'basic') onChange({ type: 'basic', username: '', password: '' })
