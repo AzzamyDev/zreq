@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../store'
 import { useRequest } from '../../hooks/useRequest'
+import { useWebSocket } from '../../hooks/useWebSocket'
 import { useAutosave } from '../../hooks/useAutosave'
 import { useCollection } from '../../hooks/useCollection'
 import UrlBar from './UrlBar'
@@ -10,10 +11,13 @@ import SaveRequestDialog from '../collection/SaveRequestDialog'
 import { Input } from '../ui/input'
 import { Button } from '../ui/button'
 
+import { buildPersistPayload } from '../../lib/persist-request'
+
 export default function RequestBuilder() {
     const { t } = useTranslation()
     useAutosave()
     const { sendRequest } = useRequest()
+    const ws = useWebSocket()
     const { persistRequestItem } = useCollection()
     const isLoading = useAppStore((s) => s.isLoading)
     const breadcrumb = useAppStore((s) => s.breadcrumb)
@@ -32,16 +36,7 @@ export default function RequestBuilder() {
         if (ar.collectionId != null && ar.itemId) {
             setSaving(true)
             try {
-                await persistRequestItem(ar.collectionId, ar.itemId, {
-                    name: ar.name,
-                    method: ar.method,
-                    url: ar.url,
-                    headers: ar.headers,
-                    params: ar.params,
-                    body: ar.body,
-                    auth: ar.auth,
-                    scripts: ar.scripts,
-                })
+                await persistRequestItem(ar.collectionId, ar.itemId, buildPersistPayload(ar))
                 markActiveTabClean()
             } finally {
                 setSaving(false)
@@ -63,6 +58,7 @@ export default function RequestBuilder() {
     }, [handleSave])
 
     const noTabs = tabs.length === 0
+    const isWs = (activeRequest.protocol ?? 'http') === 'ws'
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -95,19 +91,18 @@ export default function RequestBuilder() {
                                 ))}
                             </div>
                         )}
-                        <div className="flex items-center gap-2 px-3 pb-2 pt-1">
+                        <div className="flex items-center gap-2 px-3 pt-2 pb-2">
                             <Input
                                 value={activeRequest.name}
                                 onChange={(e) => setActiveRequest({ name: e.target.value })}
                                 placeholder={t('request.requestName')}
-                                className="h-8 max-w-md"
+                                className="h-9 max-w-md px-3 py-0"
                                 aria-label={t('request.requestNameAria')}
                             />
                             <Button
                                 type="button"
                                 variant="outline"
-                                size="sm"
-                                className="h-8 shrink-0"
+                                className="h-9 shrink-0 gap-2 px-4"
                                 disabled={saving}
                                 title={t('request.saveShortcutTitle')}
                                 onClick={() => void handleSave()}
@@ -115,12 +110,22 @@ export default function RequestBuilder() {
                                 {saving ? t('common.saving') : t('common.save')}
                             </Button>
                         </div>
-                        <div className="p-3 pt-0">
-                            <UrlBar onSend={sendRequest} isLoading={isLoading} />
+                        <div className={`px-3 pt-0 ${isWs ? 'pb-3' : 'pb-2.5'}`}>
+                            <UrlBar
+                                onSend={sendRequest}
+                                onWsConnect={() => void ws.connect()}
+                                onWsDisconnect={() => void ws.disconnect()}
+                                isLoading={isLoading}
+                                wsState={ws.wsState}
+                            />
                         </div>
                     </div>
-                    <div className="flex-1 min-h-0 overflow-auto">
-                        <RequestTabs />
+                    <div className="min-h-0 flex-1 overflow-auto pt-2">
+                        <RequestTabs
+                            onWsSend={(data, isBinary) => void ws.sendMessage(data, isBinary)}
+                            onWsPing={() => void ws.sendPing()}
+                            wsConnected={ws.isConnected}
+                        />
                     </div>
                 </>
             )}

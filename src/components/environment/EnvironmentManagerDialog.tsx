@@ -1,25 +1,43 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
-import { Upload, Download } from 'lucide-react'
+import {
+    Upload,
+    Download,
+    Search,
+    Plus,
+    Trash2,
+    Pencil,
+    Layers,
+    Loader2,
+    Check,
+    X,
+    Sparkles,
+} from 'lucide-react'
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogHeader,
     DialogTitle,
 } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { Badge } from '../ui/badge'
+import { ScrollArea } from '../ui/scroll-area'
+import { cn } from '@/lib/utils'
 import { useAppStore } from '../../store'
 import { useSyncStore } from '../../store/syncStore'
 import { useEnvironment } from '../../hooks/useEnvironment'
 import { importEnvironments, exportEnvironment } from '../../lib/importExport'
-import type { KV, Environment } from '../../types'
+import { saveTextFile } from '../../lib/utils'
+import type { KV } from '../../types'
 import { toast } from 'sonner'
-import { apiClient } from '@/lib/api-client'
-import { pullRemoteFull } from '@/lib/local-replica/sync-engine'
 
 const AUTOSAVE_DEBOUNCE_MS = 700
+
+const VAR_ROW_GRID =
+    'grid grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center'
 
 function buildVarsPayload(localVars: KV[], draftKey: string, draftVal: string) {
     const pending =
@@ -43,7 +61,7 @@ interface EnvironmentManagerDialogProps {
 
 export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentManagerDialogProps) {
     const { t } = useTranslation()
-    const { environments, activeWorkspaceId } = useAppStore()
+    const { environments, activeWorkspaceId, activeEnvironmentId } = useAppStore()
     const { createEnvironment, updateVariables, renameEnvironment, deleteEnvironment } = useEnvironment()
     const updateVariablesRef = useRef(updateVariables)
     updateVariablesRef.current = updateVariables
@@ -357,6 +375,10 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
     const handleImportFiles = async (files: FileList | null) => {
         const list = Array.from(files ?? [])
         if (list.length === 0) return
+        if (activeWorkspaceId == null) {
+            toast.warning(t('sidebar.selectWorkspaceFirst'))
+            return
+        }
         setImportError(null)
         setIsImporting(true)
         try {
@@ -366,38 +388,31 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                 importedRows.push(...importEnvironments(text))
             }
 
+            if (importedRows.length === 0) {
+                setImportError(t('environment.nothingToImport'))
+                return
+            }
+
             let createdCount = 0
             let lastCreatedId: number | null = null
-            const canCreateDirectly = activeWorkspaceId != null && online && reachable !== false
-
-            if (canCreateDirectly) {
-                for (const row of importedRows) {
-                    const res = await apiClient.post<{ data: Environment }>('/environments', {
-                        workspaceId: activeWorkspaceId,
-                        name: row.name,
-                        variables: row.variables,
-                    })
-                    createdCount += 1
-                    lastCreatedId = res.data.data.id
-                }
-                // Ensure sidebar/list reflects authoritative server state after batch create.
-                await pullRemoteFull()
-            } else {
-                for (const row of importedRows) {
-                    const created = await createEnvironment(row.name, row.variables)
-                    if (!created) continue
-                    createdCount += 1
-                    lastCreatedId = created.id
-                }
+            for (const row of importedRows) {
+                const created = await createEnvironment(row.name, row.variables)
+                if (!created) continue
+                createdCount += 1
+                lastCreatedId = created.id
             }
+
+            if (createdCount === 0) {
+                setImportError(t('environment.importNothingCreated'))
+                return
+            }
+
             if (lastCreatedId != null) {
                 setSelectedId(lastCreatedId)
                 setIsCreating(false)
                 setNewEnvName('')
             }
-            if (createdCount > 0) {
-                toast.success(t('environment.importedEnvironments', { count: createdCount }))
-            }
+            toast.success(t('environment.importedEnvironments', { count: createdCount }))
         } catch (e) {
             setImportError(e instanceof Error ? e.message : t('environment.importFailed'))
         } finally {
@@ -406,34 +421,80 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         }
     }
 
-    const handleExport = () => {
+    const handleExport = async () => {
         if (!selectedEnv) return
-        const json = exportEnvironment(selectedEnv)
-        const blob = new Blob([json], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${selectedEnv.name.replace(/[^a-z0-9_-]/gi, '_')}.json`
-        a.click()
-        URL.revokeObjectURL(url)
+        const exportName = (editingName ? nameValue : selectedEnv.name).trim() || selectedEnv.name
+        const variables = buildVarsPayload(localVars, draftRow.key, draftRow.value)
+        const json = exportEnvironment({ ...selectedEnv, name: exportName, variables })
+        const filename = `${exportName.replace(/[^a-z0-9_-]/gi, '_')}.json`
+        const result = await saveTextFile(filename, json, 'application/json')
+        if (result === 'saved') {
+            toast.success(t('common.exportSuccess', { filename }))
+        } else if (result === 'error') {
+            toast.error(t('common.exportFailed'))
+        }
     }
+
+    const enabledVarCount = localVars.filter((v) => v.enabled).length
 
     return (
         <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
             <DialogContent
-                className="max-h-[80vh] max-w-[calc(100vw-2rem)] sm:max-w-5xl w-full flex flex-col gap-0 p-0 overflow-hidden"
-                showCloseButton={true}
+                className="env-manager-dialog !flex h-[min(88vh,720px)] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden rounded-xl border border-border/80 bg-card p-0 ring-1 ring-border/40 sm:max-w-5xl"
+                showCloseButton={false}
             >
-                <DialogHeader className="shrink-0 px-4 pt-4 pb-0">
-                    <DialogTitle>{t('environment.manageTitle')}</DialogTitle>
+                <DialogHeader className="shrink-0 border-b border-border/70 bg-card px-5 py-4">
+                    <DialogTitle className="sr-only">{t('environment.manageTitle')}</DialogTitle>
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 space-y-1">
+                            <div className="flex items-center gap-2.5">
+                                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background/60 text-[var(--dracula-cyan)] shadow-sm">
+                                    <Layers className="size-4" />
+                                </span>
+                                <p
+                                    aria-hidden
+                                    className="text-lg font-semibold tracking-tight outline-none select-none"
+                                >
+                                    {t('environment.manageTitle')}
+                                </p>
+                            </div>
+                            <p className="pl-10.5 text-xs text-muted-foreground">
+                                {environments.length === 0
+                                    ? t('environment.noEnvironmentsYet')
+                                    : t('environment.environmentCount', { count: environments.length })}
+                            </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                            {showUnsaved ? (
+                                <Badge
+                                    variant="outline"
+                                    className="border-[color-mix(in_srgb,var(--dracula-orange)_45%,transparent)] bg-[color-mix(in_srgb,var(--dracula-orange)_10%,transparent)] text-[var(--dracula-orange)]"
+                                >
+                                    {t('environment.unsaved')}
+                                </Badge>
+                            ) : null}
+                            <DialogClose
+                                render={
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        className="text-muted-foreground hover:text-foreground"
+                                    />
+                                }
+                            >
+                                <X className="size-4" />
+                                <span className="sr-only">{t('common.close')}</span>
+                            </DialogClose>
+                        </div>
+                    </div>
                 </DialogHeader>
 
-                <div className="flex min-h-[400px] flex-1 overflow-hidden">
-                    {/* Left panel: environment list */}
-                    <div className="flex w-56 shrink-0 flex-col border-r border-border">
-                        <div className="flex flex-col gap-1.5 p-2 border-b border-border">
+                <div className="flex min-h-0 flex-1 overflow-hidden">
+                    {/* Environment rail */}
+                    <aside className="flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden border-r border-border/70 bg-sidebar">
+                        <div className="space-y-2 p-3">
                             {isCreating ? (
-                                <div className="flex gap-1">
+                                <div className="flex gap-1.5">
                                     <Input
                                         autoFocus
                                         placeholder={t('environment.envNamePlaceholder')}
@@ -446,12 +507,12 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                                 setNewEnvName('')
                                             }
                                         }}
-                                        className="h-6 text-xs px-2"
+                                        className="h-8 border-sidebar-border/60 bg-transparent text-xs"
                                     />
                                     <Button
                                         type="button"
                                         size="sm"
-                                        className="h-6 px-2 text-xs"
+                                        className="h-8 shrink-0 px-2.5 text-xs"
                                         onClick={handleCreateEnv}
                                         disabled={!newEnvName.trim()}
                                     >
@@ -461,12 +522,13 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                             ) : (
                                 <Button
                                     type="button"
-                                    variant="outline"
+                                    variant="ghost"
                                     size="sm"
-                                    className="h-6 w-full text-xs"
+                                    className="h-8 w-full justify-start gap-2 text-xs hover:bg-[var(--sidebar-row-hover)]"
                                     onClick={() => setIsCreating(true)}
                                 >
-                                    {t('environment.newEnvironment')}
+                                    <Plus className="size-3.5 text-[var(--dracula-green)]" />
+                                    {t('environment.newEnvironmentButton')}
                                 </Button>
                             )}
                             <input
@@ -481,76 +543,97 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                             />
                             <Button
                                 type="button"
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
-                                className="h-6 w-full gap-1 text-xs"
+                                className="h-8 w-full justify-start gap-2 text-xs hover:bg-[var(--sidebar-row-hover)]"
                                 disabled={isImporting}
                                 onClick={() => importInputRef.current?.click()}
                                 title={t('environment.importTitle')}
                             >
-                                <Upload className="size-3 shrink-0 opacity-70" aria-hidden />
+                                {isImporting ? (
+                                    <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" aria-hidden />
+                                ) : (
+                                    <Upload className="size-3.5 shrink-0 text-[var(--dracula-cyan)]" aria-hidden />
+                                )}
                                 {isImporting ? t('common.importing') : t('environment.import')}
                             </Button>
                             {importError ? (
-                                <p className="text-[11px] leading-snug text-destructive">{importError}</p>
+                                <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[11px] leading-snug text-destructive">
+                                    {importError}
+                                </p>
                             ) : null}
                         </div>
 
-                        <div className="border-b border-border px-2 py-1.5">
-                            <Input
-                                value={envListQuery}
-                                onChange={(e) => setEnvListQuery(e.target.value)}
-                                placeholder={t('environment.searchPlaceholder')}
-                                className="h-7 text-xs"
-                            />
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto py-1">
-                            {environments.length === 0 ? (
-                                <p className="px-3 py-2 text-xs text-muted-foreground">{t('environment.noEnvironmentsYet')}</p>
-                            ) : filteredEnvs.length === 0 ? (
-                                <p className="px-3 py-2 text-xs text-muted-foreground">{t('common.noMatch')}</p>
-                            ) : (
-                                filteredEnvs.map((env) => (
-                                    <button
-                                        key={env.id}
-                                        onClick={() => setSelectedId(env.id)}
-                                        className={[
-                                            'w-full text-left px-3 py-1.5 text-xs rounded-sm transition-colors',
-                                            selectedId === env.id
-                                                ? 'bg-accent text-accent-foreground font-medium'
-                                                : 'hover:bg-muted text-foreground',
-                                        ].join(' ')}
-                                    >
-                                        {env.name}
-                                    </button>
-                                ))
-                            )}
-                        </div>
-
-                        {selectedId !== null && (
-                            <div className="border-t border-border p-2">
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-full text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    onClick={handleDeleteSelected}
-                                >
-                                    {t('common.delete')}
-                                </Button>
+                        <div className="px-3 pb-2">
+                            <div className="relative">
+                                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    value={envListQuery}
+                                    onChange={(e) => setEnvListQuery(e.target.value)}
+                                    placeholder={t('environment.searchPlaceholder')}
+                                    className="h-8 border-sidebar-border/60 bg-transparent pl-8 text-xs"
+                                />
                             </div>
-                        )}
-                    </div>
+                        </div>
 
-                    {/* Right panel: variable editor */}
-                    <div className="flex flex-1 flex-col overflow-hidden">
+                        <ScrollArea className="min-h-0 flex-1">
+                            <div className="space-y-0.5 p-2">
+                                {environments.length === 0 ? (
+                                    <div className="px-2 py-6 text-center">
+                                        <Sparkles className="mx-auto mb-2 size-5 text-muted-foreground/50" />
+                                        <p className="text-xs text-muted-foreground">{t('environment.noEnvironmentsYet')}</p>
+                                    </div>
+                                ) : filteredEnvs.length === 0 ? (
+                                    <p className="px-2 py-4 text-xs text-muted-foreground">{t('common.noMatch')}</p>
+                                ) : (
+                                    filteredEnvs.map((env) => {
+                                        const isSelected = selectedId === env.id
+                                        const isActive = activeEnvironmentId === env.id
+                                        return (
+                                            <button
+                                                key={env.id}
+                                                type="button"
+                                                onClick={() => setSelectedId(env.id)}
+                                                className={cn(
+                                                    'group flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs transition-colors',
+                                                    isSelected
+                                                        ? 'bg-primary/10 font-medium text-foreground ring-1 ring-inset ring-primary/25'
+                                                        : 'text-sidebar-foreground/80 hover:bg-[var(--sidebar-row-hover)] hover:text-sidebar-foreground'
+                                                )}
+                                            >
+                                                <span
+                                                    className={cn(
+                                                        'size-1.5 shrink-0 rounded-full transition-colors',
+                                                        isActive
+                                                            ? 'bg-[var(--dracula-green)] shadow-[0_0_8px_color-mix(in_srgb,var(--dracula-green)_60%,transparent)]'
+                                                            : 'bg-muted-foreground/30 group-hover:bg-muted-foreground/50'
+                                                    )}
+                                                    title={isActive ? t('envSelector.label') : undefined}
+                                                />
+                                                <span className="min-w-0 flex-1 truncate">{env.name}</span>
+                                                <span
+                                                    className={cn(
+                                                        'shrink-0 tabular-nums text-[10px]',
+                                                        isSelected ? 'text-primary/80' : 'text-muted-foreground'
+                                                    )}
+                                                >
+                                                    {(env.variables ?? []).length}
+                                                </span>
+                                            </button>
+                                        )
+                                    })
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </aside>
+
+                    {/* Editor pane */}
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card">
                         {selectedEnv ? (
                             <>
-                                {/* Env name header */}
-                                <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                                <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3">
                                     {editingName ? (
-                                        <div className="flex flex-1 items-center gap-1">
+                                        <div className="flex min-w-0 flex-1 items-center gap-2">
                                             <Input
                                                 autoFocus
                                                 value={nameValue}
@@ -562,189 +645,207 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                                         setNameValue(selectedEnv.name)
                                                     }
                                                 }}
-                                                className="h-6 text-xs"
+                                                className="h-9 max-w-sm text-sm"
                                             />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                className="h-6 px-2 text-xs"
-                                                onClick={handleRename}
-                                            >
+                                            <Button type="button" size="sm" className="h-9 px-3" onClick={handleRename}>
+                                                <Check className="size-3.5" />
                                                 {t('common.ok')}
                                             </Button>
                                             <Button
                                                 type="button"
                                                 variant="ghost"
                                                 size="sm"
-                                                className="h-6 px-2 text-xs"
+                                                className="h-9 px-3"
                                                 onClick={() => {
                                                     setEditingName(false)
                                                     setNameValue(selectedEnv.name)
                                                 }}
                                             >
+                                                <X className="size-3.5" />
                                                 {t('common.cancel')}
                                             </Button>
                                         </div>
                                     ) : (
                                         <>
-                                            <span className="flex-1 text-xs font-medium">{selectedEnv.name}</span>
-                                            <button
-                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                                onClick={handleExport}
-                                                title={t('environment.exportTitle')}
-                                            >
-                                                <Download className="inline size-3 mr-0.5" />
-                                                {t('common.export')}
-                                            </button>
-                                            <button
-                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                                onClick={() => setEditingName(true)}
-                                            >
-                                                {t('common.rename')}
-                                            </button>
+                                            <div className="min-w-0 flex-1">
+                                                <h3 className="truncate text-base font-semibold tracking-tight">
+                                                    {selectedEnv.name}
+                                                </h3>
+                                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                                    {t('environment.varsActive', {
+                                                        enabled: enabledVarCount,
+                                                        total: localVars.length,
+                                                    })}
+                                                </p>
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-1">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                                                    onClick={() => void handleExport()}
+                                                    title={t('environment.exportTitle')}
+                                                >
+                                                    <Download className="size-3.5" />
+                                                    {t('common.export')}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                                                    onClick={() => setEditingName(true)}
+                                                >
+                                                    <Pencil className="size-3.5" />
+                                                    {t('common.rename')}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 gap-1.5 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                    onClick={() => void handleDeleteSelected()}
+                                                >
+                                                    <Trash2 className="size-3.5" />
+                                                    {t('common.delete')}
+                                                </Button>
+                                            </div>
                                         </>
                                     )}
                                 </div>
 
-                                {/* Variable table */}
-                                <div className="flex-1 overflow-y-auto">
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="border-b border-border/50 bg-muted/30">
-                                                <th className="w-8 py-1.5 pl-2 pr-1">
-                                                    <input
-                                                        ref={selectAllVarsRef}
-                                                        type="checkbox"
-                                                        checked={allVarsEnabled}
-                                                        disabled={localVars.length === 0}
-                                                        onChange={toggleSelectAllVars}
-                                                        className="cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
-                                                        title={allVarsEnabled ? t('common.unselectAll') : t('common.selectAll')}
-                                                        aria-label={
-                                                            allVarsEnabled ? t('common.unselectAllVariables') : t('common.selectAllVariables')
-                                                        }
-                                                    />
-                                                </th>
-                                                <th className="py-1.5 pr-1 text-left text-xs font-medium text-muted-foreground">
+                                <ScrollArea className="min-h-0 flex-1">
+                                    <div className="px-1 py-1">
+                                        <div className={cn('sticky top-0 z-10 border-b border-border/70 bg-card', VAR_ROW_GRID)}>
+                                            <div className="flex items-center justify-center py-2 pl-3 pr-1">
+                                                <input
+                                                    ref={selectAllVarsRef}
+                                                    type="checkbox"
+                                                    checked={allVarsEnabled}
+                                                    disabled={localVars.length === 0}
+                                                    onChange={toggleSelectAllVars}
+                                                    className="cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                                                    title={allVarsEnabled ? t('common.unselectAll') : t('common.selectAll')}
+                                                    aria-label={
+                                                        allVarsEnabled ? t('common.unselectAllVariables') : t('common.selectAllVariables')
+                                                    }
+                                                />
+                                            </div>
+                                            <div className="border-l border-border/40 py-2 pl-3 text-left">
+                                                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                                                     {t('common.key')}
-                                                </th>
-                                                <th className="py-1.5 pr-1 text-left text-xs font-medium text-muted-foreground">
+                                                </span>
+                                            </div>
+                                            <div className="border-l border-border/40 py-2 pl-3 text-left">
+                                                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                                                     {t('common.value')}
-                                                </th>
-                                                <th className="w-8 py-1.5 pr-2" />
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {localVars.map((pair) => (
-                                                <tr
-                                                    key={pair.id}
-                                                    className="group border-b border-border/50 last:border-0"
-                                                >
-                                                    <td className="w-8 py-1 pl-2 pr-1">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={pair.enabled}
-                                                            onChange={(e) =>
-                                                                updatePair(pair.id, 'enabled', e.target.checked)
-                                                            }
-                                                            className="cursor-pointer accent-primary"
-                                                        />
-                                                    </td>
-                                                    <td className="py-1 pr-1">
-                                                        <input
-                                                            type="text"
-                                                            value={pair.key}
-                                                            onChange={(e) =>
-                                                                updatePair(pair.id, 'key', e.target.value)
-                                                            }
-                                                            placeholder={t('common.key')}
-                                                            className="w-full bg-transparent px-2 py-0.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring rounded"
-                                                        />
-                                                    </td>
-                                                    <td className="py-1 pr-1">
-                                                        <input
-                                                            type="text"
-                                                            value={pair.value}
-                                                            onChange={(e) =>
-                                                                updatePair(pair.id, 'value', e.target.value)
-                                                            }
-                                                            placeholder={t('common.value')}
-                                                            className="w-full bg-transparent px-2 py-0.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring rounded"
-                                                        />
-                                                    </td>
-                                                    <td className="w-8 py-1 pr-2">
-                                                        <button
-                                                            onClick={() => deletePair(pair.id)}
-                                                            className="invisible group-hover:visible rounded p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                                                            title={t('common.remove')}
-                                                        >
-                                                            <svg
-                                                                xmlns="http://www.w3.org/2000/svg"
-                                                                width="14"
-                                                                height="14"
-                                                                viewBox="0 0 24 24"
-                                                                fill="none"
-                                                                stroke="currentColor"
-                                                                strokeWidth="2"
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                            >
-                                                                <path d="M18 6 6 18" />
-                                                                <path d="m6 6 12 12" />
-                                                            </svg>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                            {/* Empty row for adding new variables */}
-                                            <tr className="border-b border-border/50 last:border-0 opacity-50 focus-within:opacity-100">
-                                                <td className="w-8 py-1 pl-2 pr-1">
+                                                </span>
+                                            </div>
+                                            <div className="sr-only">{t('common.remove')}</div>
+                                        </div>
+
+                                        {localVars.map((pair) => (
+                                            <div
+                                                key={pair.id}
+                                                className={cn(
+                                                    'group border-b border-border/40 transition-colors hover:bg-muted/15',
+                                                    !pair.enabled && 'opacity-45',
+                                                    VAR_ROW_GRID
+                                                )}
+                                            >
+                                                <div className="flex items-center justify-center py-1.5 pl-3 pr-1">
                                                     <input
                                                         type="checkbox"
-                                                        disabled
-                                                        className="cursor-not-allowed accent-primary"
+                                                        checked={pair.enabled}
+                                                        onChange={(e) =>
+                                                            updatePair(pair.id, 'enabled', e.target.checked)
+                                                        }
+                                                        className="cursor-pointer accent-primary"
                                                     />
-                                                </td>
-                                                <td className="py-1 pr-1">
+                                                </div>
+                                                <div className="border-l border-border/40 py-1 pl-2 pr-1">
                                                     <input
                                                         type="text"
-                                                        value={draftRow.key}
-                                                        onChange={(e) => setDraftField('key', e.target.value)}
-                                                        onBlur={handleDraftBlur}
+                                                        value={pair.key}
+                                                        onChange={(e) =>
+                                                            updatePair(pair.id, 'key', e.target.value)
+                                                        }
                                                         placeholder={t('common.key')}
-                                                        className="w-full bg-transparent px-2 py-0.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring rounded"
+                                                        className="w-full rounded-md bg-transparent px-2 py-1 font-mono text-xs transition-colors focus:bg-muted/20 focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--dracula-cyan)_40%,transparent)]"
                                                     />
-                                                </td>
-                                                <td className="py-1 pr-1">
+                                                </div>
+                                                <div className="min-w-0 border-l border-border/40 py-1 pr-1">
                                                     <input
                                                         type="text"
-                                                        value={draftRow.value}
-                                                        onChange={(e) => setDraftField('value', e.target.value)}
-                                                        onBlur={handleDraftBlur}
+                                                        value={pair.value}
+                                                        onChange={(e) =>
+                                                            updatePair(pair.id, 'value', e.target.value)
+                                                        }
                                                         placeholder={t('common.value')}
-                                                        className="w-full bg-transparent px-2 py-0.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring rounded"
+                                                        className="w-full rounded-md bg-transparent px-2 py-1 font-mono text-xs text-[color-mix(in_srgb,var(--dracula-cyan)_88%,white)] transition-colors focus:bg-muted/20 focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--dracula-cyan)_40%,transparent)]"
                                                     />
-                                                </td>
-                                                <td className="w-8 py-1 pr-2" />
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                                </div>
+                                                <div className="flex items-center justify-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => deletePair(pair.id)}
+                                                        className="flex cursor-pointer items-center justify-center rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                                                        title={t('common.remove')}
+                                                        aria-label={t('common.remove')}
+                                                    >
+                                                        <Trash2 className="size-3.5" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
 
-                                <div className="mx-0 flex flex-col gap-1.5 border-t border-border bg-muted/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                        <div className={cn('border-b border-border/40 opacity-55 focus-within:opacity-100', VAR_ROW_GRID)}>
+                                            <div className="flex items-center justify-center py-1.5 pl-3 pr-1">
+                                                <input
+                                                    type="checkbox"
+                                                    disabled
+                                                    className="cursor-not-allowed accent-primary opacity-40"
+                                                    aria-hidden
+                                                />
+                                            </div>
+                                            <div className="border-l border-border/40 py-1 pl-2 pr-1">
+                                                <input
+                                                    type="text"
+                                                    value={draftRow.key}
+                                                    onChange={(e) => setDraftField('key', e.target.value)}
+                                                    onBlur={handleDraftBlur}
+                                                    placeholder={t('common.key')}
+                                                    className="w-full rounded-md bg-transparent px-2 py-1 font-mono text-xs italic text-muted-foreground focus:bg-muted/20 focus:text-foreground focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--dracula-green)_35%,transparent)]"
+                                                />
+                                            </div>
+                                            <div className="min-w-0 border-l border-border/40 py-1 pr-1">
+                                                <input
+                                                    type="text"
+                                                    value={draftRow.value}
+                                                    onChange={(e) => setDraftField('value', e.target.value)}
+                                                    onBlur={handleDraftBlur}
+                                                    placeholder={t('common.value')}
+                                                    className="w-full rounded-md bg-transparent px-2 py-1 font-mono text-xs italic text-muted-foreground focus:bg-muted/20 focus:text-foreground focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--dracula-green)_35%,transparent)]"
+                                                />
+                                            </div>
+                                            <div aria-hidden />
+                                        </div>
+                                    </div>
+                                </ScrollArea>
+
+                                <div className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div
                                         className="flex min-h-7 min-w-0 flex-1 flex-col gap-1 text-[11px] leading-snug text-muted-foreground"
                                         role="status"
                                         aria-live="polite"
                                     >
                                         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                                            {showUnsaved ? (
-                                                <span className="shrink-0 font-medium text-amber-700 dark:text-amber-400">
-                                                    {t('environment.unsaved')}
-                                                </span>
-                                            ) : null}
                                             {varsDirty && !syncBlocked ? (
-                                                <span className="min-w-0">{t('environment.autoSaveSoon')}</span>
+                                                <span className="inline-flex items-center gap-1 text-[var(--dracula-cyan)]">
+                                                    <Loader2 className="size-3 animate-spin" />
+                                                    {t('environment.autoSaveSoon')}
+                                                </span>
                                             ) : null}
                                             {syncBlocked ? (
                                                 <span className="shrink-0">{t('sync.offline')}</span>
@@ -762,7 +863,8 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                             ) : null}
                                         </div>
                                         {saveNotice === 'success' ? (
-                                            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                                            <span className="inline-flex items-center gap-1 font-medium text-[var(--dracula-green)]">
+                                                <Check className="size-3" />
                                                 {t('environment.changesSaved')}
                                             </span>
                                         ) : saveNotice === 'error' ? (
@@ -772,21 +874,42 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                     <Button
                                         type="button"
                                         size="sm"
-                                        className="h-7 shrink-0 self-end text-xs sm:self-auto"
+                                        className="h-8 shrink-0 self-end gap-1.5 bg-[var(--dracula-green)] px-4 text-xs font-semibold text-[#282a36] hover:bg-[color-mix(in_srgb,var(--dracula-green)_88%,white)] sm:self-auto"
                                         onClick={() => void handleSave()}
                                         disabled={isSaving}
                                     >
-                                        {isSaving ? t('environment.saving') : t('environment.save')}
+                                        {isSaving ? (
+                                            <>
+                                                <Loader2 className="size-3.5 animate-spin" />
+                                                {t('environment.saving')}
+                                            </>
+                                        ) : (
+                                            t('environment.save')
+                                        )}
                                     </Button>
                                 </div>
                             </>
                         ) : (
-                            <div className="flex flex-1 items-center justify-center">
-                                <p className="text-xs text-muted-foreground">
+                            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                                <div className="flex size-14 items-center justify-center rounded-2xl border border-border/60 bg-muted/20 text-muted-foreground/60">
+                                    <Layers className="size-6" />
+                                </div>
+                                <p className="max-w-xs text-sm text-muted-foreground">
                                     {environments.length === 0
                                         ? t('environment.createToStart')
                                         : t('environment.selectEnvironment')}
                                 </p>
+                                {environments.length === 0 ? (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="mt-1 gap-1.5"
+                                        onClick={() => setIsCreating(true)}
+                                    >
+                                        <Plus className="size-3.5" />
+                                        {t('environment.newEnvironmentButton')}
+                                    </Button>
+                                ) : null}
                             </div>
                         )}
                     </div>

@@ -11,7 +11,7 @@ import type { Collection, Environment, Workspace } from '@/types'
 import { normalizeEnvVarsForDiff, stableStringify } from '@/lib/conflict-diff'
 import { makeReplicaKey } from './replica-key'
 import * as snap from './snapshot-store'
-import { enqueueOp, listPending, removeOp } from './outbox-ops'
+import { enqueueOp, listPending, removeOp, removeSiblingPatchOps } from './outbox-ops'
 import type { ConflictEntry, OutboxOp } from './types'
 import { shouldDebouncePushAfterLocalEdit } from '@/lib/sync-preferences'
 
@@ -112,6 +112,10 @@ function collectionContentMatchesServer(local: Collection | null | undefined, re
     if (local.name !== remote.name) return false
     if ((local.description ?? '') !== (remote.description ?? '')) return false
     return stableStringify(local.items, 0) === stableStringify(remote.items, 0)
+}
+
+function workspaceContentMatchesServer(local: Workspace | null | undefined, remote: Workspace): boolean {
+    return local != null && local.name === remote.name
 }
 
 
@@ -547,6 +551,125 @@ async function maybeEnqueueInitialCollectionPatch(replicaKey: string, created: C
     await enqueueOp({ type: 'collection_patch', replicaKey, collectionId: created.id, workspaceId, body, expectedUpdatedAt: created.updatedAt })
 }
 
+async function cleanupSiblingPatchOps(op: OutboxOp) {
+    if (op.type === 'collection_patch') {
+        await removeSiblingPatchOps(op.replicaKey, { kind: 'collection', collectionId: op.collectionId }, op.id)
+    } else if (op.type === 'workspace_patch') {
+        await removeSiblingPatchOps(op.replicaKey, { kind: 'workspace', workspaceId: op.workspaceId }, op.id)
+    } else if (op.type === 'environment_patch') {
+        await removeSiblingPatchOps(op.replicaKey, { kind: 'environment', environmentId: op.environmentId }, op.id)
+    }
+}
+
+async function trySelfStaleRetry(op: OutboxOp, serverEntity: unknown): Promise<boolean> {
+    if (op.type === 'collection_patch') {
+        const srv = serverEntity as Collection
+        const local =
+            useAppStore.getState().activeWorkspaceId === op.workspaceId
+                ? useAppStore.getState().collections.find((c) => c.id === op.collectionId)
+                : snap.getWorkspaceSlice(op.workspaceId).find((c) => c.id === op.collectionId)
+        if (!local) return false
+        if (collectionContentMatchesServer(local, srv)) {
+            snap.clearDirtyMeta('collection', op.collectionId, srv.updatedAt)
+            await snap.persistSnapshotNow()
+            return true
+        }
+        if (op.expectedUpdatedAt == null || op.expectedUpdatedAt === srv.updatedAt) return false
+        const body: Record<string, unknown> = {}
+        if (local.name !== srv.name) body.name = local.name
+        if ((local.description ?? '') !== (srv.description ?? '')) body.description = local.description
+        if (stableStringify(local.items, 0) !== stableStringify(srv.items, 0)) body.items = local.items
+        if (Object.keys(body).length === 0) return true
+        try {
+            const res = await apiClient.patch<{ data: Collection }>(`/collections/${op.collectionId}`, {
+                ...body,
+                expectedUpdatedAt: srv.updatedAt,
+            })
+            const c = res.data.data
+            snap.clearDirtyMeta('collection', op.collectionId, c.updatedAt)
+            snap.applyServerCollection(op.workspaceId, c, { overwriteLocal: true })
+            if (useAppStore.getState().activeWorkspaceId === op.workspaceId) {
+                useAppStore.getState().updateCollection(op.collectionId, c)
+            }
+            await snap.persistSnapshotNow()
+            return true
+        } catch {
+            return false
+        }
+    }
+    if (op.type === 'workspace_patch') {
+        const srv = serverEntity as Workspace
+        const local = useAppStore.getState().workspaces.find((w) => w.id === op.workspaceId)
+        if (!local) return false
+        if (workspaceContentMatchesServer(local, srv)) {
+            snap.clearDirtyMeta('workspace', op.workspaceId, srv.updatedAt)
+            await snap.persistSnapshotNow()
+            return true
+        }
+        if (op.expectedUpdatedAt == null || op.expectedUpdatedAt === srv.updatedAt) return false
+        try {
+            const res = await apiClient.patch<{ data: Workspace }>(`/workspaces/${op.workspaceId}`, {
+                name: local.name,
+                expectedUpdatedAt: srv.updatedAt,
+            })
+            const w = structuredClone(res.data.data)
+            snap.clearDirtyMeta('workspace', op.workspaceId, w.updatedAt)
+            const memWs = snap.getMemorySnapshot()
+            if (memWs) {
+                const idx = memWs.workspaces.findIndex((x) => x.id === w.id)
+                if (idx !== -1) memWs.workspaces[idx] = w
+            }
+            useAppStore.getState().updateWorkspace(op.workspaceId, w)
+            await snap.persistSnapshotNow()
+            return true
+        } catch {
+            return false
+        }
+    }
+    if (op.type === 'environment_patch') {
+        const srv = serverEntity as Environment
+        const wid =
+            op.workspaceId ??
+            snap.getMemorySnapshot()?.activeWorkspaceId ??
+            useAppStore.getState().activeWorkspaceId ??
+            0
+        const local =
+            useAppStore.getState().activeWorkspaceId === wid
+                ? useAppStore.getState().environments.find((e) => e.id === op.environmentId)
+                : snap.getWorkspaceEnvSlice(wid).find((e) => e.id === op.environmentId)
+        if (!local) return false
+        if (environmentContentMatchesServer(local, srv)) {
+            snap.clearDirtyMeta('environment', op.environmentId, srv.updatedAt)
+            await snap.persistSnapshotNow()
+            return true
+        }
+        if (op.expectedUpdatedAt == null || op.expectedUpdatedAt === srv.updatedAt) return false
+        const body: Record<string, unknown> = {}
+        if (local.name !== srv.name) body.name = local.name
+        const localVars = stableStringify(normalizeEnvVarsForDiff(local.variables), 0)
+        const srvVars = stableStringify(normalizeEnvVarsForDiff(srv.variables), 0)
+        if (localVars !== srvVars) body.variables = local.variables
+        if (Object.keys(body).length === 0) return true
+        try {
+            const res = await apiClient.patch<{ data: Environment }>(`/environments/${op.environmentId}`, {
+                ...body,
+                expectedUpdatedAt: srv.updatedAt,
+            })
+            const e = res.data.data
+            snap.clearDirtyMeta('environment', op.environmentId, e.updatedAt)
+            snap.applyServerEnvironment(wid, e, { overwriteLocal: true })
+            if (useAppStore.getState().activeWorkspaceId === wid) {
+                useAppStore.getState().updateEnvironment(op.environmentId, e)
+            }
+            await snap.persistSnapshotNow()
+            return true
+        } catch {
+            return false
+        }
+    }
+    return false
+}
+
 async function handleStale409(op: OutboxOp, serverEntity: unknown) {
     if (op.type === 'collection_patch') {
         const srv = serverEntity as Collection
@@ -801,7 +924,30 @@ async function processOneOp(op: OutboxOp) {
         const inMem =
             snap.getMemorySnapshot()?.environmentsByWorkspaceId[String(wid)]?.some((e) => e.id === op.tempId) ??
             false
-        if (!inStore && !inMem) return
+        if (!inStore && !inMem) {
+            const now = new Date().toISOString()
+            const reconstructed: Environment = {
+                id: op.tempId,
+                name: op.body.name,
+                variables: op.body.variables ?? [],
+                workspaceId: wid,
+                createdAt: now,
+                updatedAt: now,
+            }
+            const app = useAppStore.getState()
+            if (app.activeWorkspaceId === wid && !app.environments.some((e) => e.id === op.tempId)) {
+                app.setEnvironments([...app.environments, reconstructed])
+            }
+            snap.applyMemory((m) => {
+                const key = String(wid)
+                const list = m.environmentsByWorkspaceId[key] ?? []
+                if (!list.some((e) => e.id === op.tempId)) {
+                    m.environmentsByWorkspaceId[key] = [...list, structuredClone(reconstructed)]
+                }
+                m.metaEnv[op.tempId] = { serverUpdatedAt: now, dirty: false }
+            })
+            await snap.persistSnapshotNow()
+        }
 
         const res = await apiClient.post<{ data: Environment }>('/environments', {
             ...op.body,
@@ -875,12 +1021,19 @@ export async function pushOutbox(): Promise<void> {
     for (const op of ops) {
         try {
             await processOneOp(op)
+            await cleanupSiblingPatchOps(op)
             await removeOp(op.id)
         } catch (e) {
             const stale = parseStale409(e)
             if (stale != null) {
-                await handleStale409(op, stale)
-                await removeOp(op.id)
+                const retried = await trySelfStaleRetry(op, stale)
+                if (retried) {
+                    await cleanupSiblingPatchOps(op)
+                    await removeOp(op.id)
+                } else {
+                    await handleStale409(op, stale)
+                    await removeOp(op.id)
+                }
             } else if (isPermanentOutboxError(e)) {
                 // Permanent API errors should not block the rest of the queue.
                 await removeOp(op.id)
@@ -897,8 +1050,16 @@ export async function pushOutbox(): Promise<void> {
 
 async function runPullThenPushOnce(): Promise<void> {
     if (isRemoteSyncBlocked()) return
-    await pullRemoteFull()
-    await pushOutbox()
+    const key = getReplicaKeyOrNull()
+    if (!key) return
+    const pending = await listPending(key)
+    if (pending.length > 0) {
+        await pushOutbox()
+        await pullRemoteFull()
+    } else {
+        await pullRemoteFull()
+        await pushOutbox()
+    }
 }
 
 export function pullThenPush(): Promise<void> {

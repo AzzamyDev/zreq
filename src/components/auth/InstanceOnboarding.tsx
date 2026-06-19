@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Radio } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { probeBackendReachable, validatezreqBackend } from '@/lib/probe-backend'
 import { DEFAULT_FALLBACK, normalizeBaseUrl, useInstanceStore } from '@/store/instanceStore'
 import AuthShell from './AuthShell'
@@ -80,20 +77,24 @@ export default function InstanceOnboarding() {
             description={t('onboarding.description')}
         >
             <form onSubmit={onSubmit} className="space-y-5">
-                <div className="space-y-2">
-                    <Label htmlFor="ob-name">{t('onboarding.instanceName')}</Label>
-                    <Input
+                <div className="space-y-2.5">
+                    <label htmlFor="ob-name" className="auth-nebula-label">
+                        {t('onboarding.instanceName')}
+                    </label>
+                    <input
                         id="ob-name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder={t('instance.namePlaceholder')}
-                        className="h-10 bg-background/60"
+                        className="auth-nebula-input"
                         autoComplete="off"
                     />
                 </div>
-                <div className="space-y-2">
-                    <Label htmlFor="ob-url">{t('instance.baseUrl')}</Label>
-                    <Input
+                <div className="space-y-2.5">
+                    <label htmlFor="ob-url" className="auth-nebula-label">
+                        {t('instance.baseUrl')}
+                    </label>
+                    <input
                         id="ob-url"
                         value={url}
                         onChange={(e) => {
@@ -102,7 +103,7 @@ export default function InstanceOnboarding() {
                             setUrlErr('')
                         }}
                         placeholder={t('instance.urlPlaceholder')}
-                        className="h-10 bg-background/60 font-mono text-[13px]"
+                        className="auth-nebula-input text-[13px]"
                         autoComplete="url"
                         spellCheck={false}
                     />
@@ -118,42 +119,38 @@ export default function InstanceOnboarding() {
                     ) : null}
                 </div>
 
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="lg"
-                        className="h-10 w-full sm:w-auto"
-                        disabled={probeBusy}
-                        onClick={() => void runProbe()}
-                    >
-                        {probeBusy ? (
-                            <>
-                                <Loader2 className="size-4 animate-spin" />
-                                {t('onboarding.testing')}
-                            </>
-                        ) : (
-                            t('onboarding.testConnection')
-                        )}
-                    </Button>
-                </div>
+                <button
+                    type="button"
+                    className="auth-nebula-btn-secondary"
+                    disabled={probeBusy}
+                    onClick={() => void runProbe()}
+                >
+                    {probeBusy ? (
+                        <>
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                            {t('onboarding.testing')}
+                        </>
+                    ) : (
+                        t('onboarding.testConnection')
+                    )}
+                </button>
 
-                <Button type="submit" size="lg" className="h-11 w-full" disabled={submitBusy}>
-                    {submitBusy ? <Loader2 className="size-4 animate-spin" /> : null}
+                <button type="submit" className="auth-nebula-btn-primary" disabled={submitBusy}>
+                    {submitBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
                     {t('onboarding.continue')}
-                </Button>
+                </button>
 
-                <div className="border-border/60 space-y-3 border-t pt-5">
-                    <p className="text-muted-foreground text-center text-xs">{t('onboarding.skipHint')}</p>
-                    <Button
+                <div className="space-y-3 border-t border-[var(--auth-nebula-glass-border)] pt-5">
+                    <p className="text-center text-xs text-[var(--auth-nebula-fg-soft)]">
+                        {t('onboarding.skipHint')}
+                    </p>
+                    <button
                         type="button"
-                        variant="ghost"
-                        size="lg"
-                        className="text-muted-foreground hover:text-foreground h-10 w-full"
+                        className="auth-nebula-muted-link w-full"
                         onClick={() => skipDefaults()}
                     >
                         {t('onboarding.useLocalDefaults')}
-                    </Button>
+                    </button>
                 </div>
             </form>
         </AuthShell>

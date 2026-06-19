@@ -1,7 +1,33 @@
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
 
-export type KV = {
+export type RequestProtocol = 'http' | 'ws'
+
+export type WsSavedMessage = {
     id: string
+    name?: string
+    direction: 'outgoing' | 'incoming'
+    data: string
+    isBinary?: boolean
+    timestamp?: number
+}
+
+export type WsConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error'
+
+export type WsFrame = {
+    id: string
+    direction: 'incoming' | 'outgoing' | 'system'
+    timestamp: number
+    data: string
+    isBinary?: boolean
+    opcode?: 'text' | 'binary' | 'ping' | 'pong' | 'close'
+}
+
+export type WsHandshake = {
+    status?: number
+    headers: Record<string, string>
+}
+
+export type KV = {    id: string
     key: string
     value: string
     enabled: boolean
@@ -46,6 +72,10 @@ export type RequestItem = {
     params: KV[]
     body: RequestBody
     auth: AuthConfig
+    protocol?: RequestProtocol
+    subprotocols?: string
+    savedMessages?: WsSavedMessage[]
+    messageTemplate?: string
     scripts?: {
         preRequest?: string
         postResponse?: string
@@ -127,6 +157,10 @@ export type ActiveRequest = {
     body: RequestBody
     auth: AuthConfig
     name: string
+    protocol?: RequestProtocol
+    subprotocols?: string
+    savedMessages?: WsSavedMessage[]
+    messageTemplate?: string
     collectionId?: number
     itemId?: string
     folderId?: string
@@ -152,4 +186,8 @@ export type RequestTab = {
     request: ActiveRequest
     /** Last HTTP response for this tab (global `response` mirrors the active tab). */
     response: HttpResponse | null
+    wsState: WsConnectionState
+    wsFrames: WsFrame[]
+    wsHandshake: WsHandshake | null
+    wsConnectedAt: number | null
 }

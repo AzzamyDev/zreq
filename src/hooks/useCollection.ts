@@ -1,5 +1,4 @@
 import { useCallback } from 'react'
-import { arrayMove } from '@dnd-kit/sortable'
 import { useAppStore } from '../store'
 import { useAuthStore } from '../store/authStore'
 import { nanoid } from 'nanoid'
@@ -11,6 +10,8 @@ import {
     writeCollectionPatch,
 } from '@/lib/local-replica/local-write'
 import { ensureReplicaLoaded } from '@/lib/local-replica/sync-engine'
+import { collectTopLevelSelectedItems, removeItemsById } from '../lib/collection-tree-select'
+import { findTreeItem, findItemLocation, folderContainsId } from '../lib/collection-tree'
 
 export function useCollection() {
     const { collections } = useAppStore()
@@ -46,7 +47,7 @@ export function useCollection() {
         const items = structuredClone(collection.items || [])
         const newItem = { ...item, id: item.id || nanoid() }
         if (parentFolderId) {
-            const folder = findItem(items, parentFolderId)
+            const folder = findTreeItem(items, parentFolderId)
             if (folder && folder.type === 'folder') {
                 folder.items = folder.items || []
                 folder.items.push(newItem)
@@ -68,7 +69,7 @@ export function useCollection() {
         if (!collection) return
         const items = structuredClone(collection.items || [])
         if (parentFolderId) {
-            const parent = findItem(items, parentFolderId)
+            const parent = findTreeItem(items, parentFolderId)
             if (parent) {
                 parent.items = parent.items || []
                 parent.items.push(newFolder)
@@ -85,11 +86,27 @@ export function useCollection() {
     }
 
     const deleteItem = async (collectionId: number, itemId: string) => {
+        await deleteItems(collectionId, [itemId])
+    }
+
+    const deleteItems = async (collectionId: number, itemIds: string[]) => {
+        if (itemIds.length === 0) return
         const collection = collections.find((c) => c.id === collectionId)
         if (!collection) return
         const items = structuredClone(collection.items || [])
-        removeItem(items, itemId)
+        const idSet = new Set(itemIds)
+        removeItemsById(items, idSet)
         useAppStore.getState().updateCollection(collectionId, { items })
+
+        const state = useAppStore.getState()
+        if (state.selectedItemId && idSet.has(state.selectedItemId)) {
+            state.setSelectedItemId(null)
+        }
+        const sel = state.sidebarSelection
+        if (sel?.collectionId === collectionId && sel.ids.some((id) => idSet.has(id))) {
+            state.clearSidebarSelection()
+        }
+
         await ensureReplicaLoaded()
         const wid = useAppStore.getState().activeWorkspaceId
         if (wid != null) snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
@@ -100,7 +117,7 @@ export function useCollection() {
         const collection = collections.find((c) => c.id === collectionId)
         if (!collection) return
         const items = structuredClone(collection.items || [])
-        const item = findItem(items, itemId)
+        const item = findTreeItem(items, itemId)
         if (item) item.name = name
         useAppStore.getState().updateCollection(collectionId, { items })
         await ensureReplicaLoaded()
@@ -137,7 +154,7 @@ export function useCollection() {
         const collection = live.find((c) => c.id === collectionId)
         if (!collection) return
         const items = structuredClone(collection.items || [])
-        const node = findItem(items, folderId)
+        const node = findTreeItem(items, folderId)
         if (!node || node.type !== 'folder') return
         if (updates.name != null) node.name = updates.name
         if (updates.description !== undefined) node.description = updates.description
@@ -202,13 +219,17 @@ export function useCollection() {
                 body: unknown
                 auth: unknown
                 scripts?: unknown
+                protocol?: string
+                subprotocols?: string
+                savedMessages?: unknown[]
+                messageTemplate?: string
             }
         ) => {
             const live = useAppStore.getState().collections
             const collection = live.find((c) => c.id === collectionId)
             if (!collection) return
             const items = structuredClone(collection.items || [])
-            const node = findItem(items, itemId)
+            const node = findTreeItem(items, itemId)
             if (!node || node.type !== 'request') return
             Object.assign(node, {
                 ...payload,
@@ -235,13 +256,14 @@ export function useCollection() {
             params: [],
             body: { type: 'none' as const, content: '' },
             auth: parentFolderId ? { type: 'inherit' as const } : { type: 'none' as const },
+            protocol: 'http' as const,
         }
         const collection = collections.find((c) => c.id === collectionId)
         if (!collection) return
         const items = structuredClone(collection.items || [])
 
         if (parentFolderId) {
-            const parent = findItem(items, parentFolderId)
+            const parent = findTreeItem(items, parentFolderId)
             if (parent && parent.type === 'folder') {
                 parent.items = parent.items || []
                 parent.items.push(newRequest)
@@ -258,28 +280,34 @@ export function useCollection() {
         return newRequest
     }
 
-    const moveTreeItem = useCallback(async (collectionId: number, draggedId: string, dest: TreeMoveDestination) => {
-        if (dest.kind === 'intoFolder' && dest.folderId === draggedId) return
-
-        const live = useAppStore.getState().collections
-        const collection = live.find((c) => c.id === collectionId)
+    const addWebSocketRequest = async (collectionId: number, name: string, parentFolderId?: string) => {
+        const newRequest = {
+            id: nanoid(),
+            type: 'request' as const,
+            name,
+            method: 'GET' as const,
+            url: 'wss://',
+            headers: [],
+            params: [],
+            body: { type: 'none' as const, content: '' },
+            auth: parentFolderId ? { type: 'inherit' as const } : { type: 'none' as const },
+            protocol: 'ws' as const,
+            subprotocols: '',
+            savedMessages: [],
+            messageTemplate: '',
+        }
+        const collection = collections.find((c) => c.id === collectionId)
         if (!collection) return
         const items = structuredClone(collection.items || [])
 
-        const extracted = extractItem(items, draggedId)
-        if (!extracted) return
-
-        if (extracted.type === 'folder' && dest.kind === 'intoFolder') {
-            if (folderContainsId(extracted, dest.folderId)) return
-        }
-
-        if (dest.kind === 'intoFolder') {
-            const folder = findItem(items, dest.folderId)
-            if (!folder || folder.type !== 'folder') return
-            folder.items = folder.items || []
-            folder.items.push(extracted)
+        if (parentFolderId) {
+            const parent = findTreeItem(items, parentFolderId)
+            if (parent && parent.type === 'folder') {
+                parent.items = parent.items || []
+                parent.items.push(newRequest)
+            }
         } else {
-            items.push(extracted)
+            items.push(newRequest)
         }
 
         useAppStore.getState().updateCollection(collectionId, { items })
@@ -287,107 +315,167 @@ export function useCollection() {
         const wid = useAppStore.getState().activeWorkspaceId
         if (wid != null) snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
         await writeCollectionPatch(collectionId, { items })
-    }, [])
+        return newRequest
+    }
+
+    const persistCollectionItems = async (collectionId: number, items: any[]) => {
+        useAppStore.getState().updateCollection(collectionId, { items })
+        await ensureReplicaLoaded()
+        const wid = useAppStore.getState().activeWorkspaceId
+        if (wid != null) snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
+        await writeCollectionPatch(collectionId, { items })
+    }
+
+    const transferTreeItems = useCallback(
+        async (
+            sourceCollectionId: number,
+            destCollectionId: number,
+            draggedIds: string[],
+            dest: TreeMoveDestination
+        ) => {
+            const uniqueIds = [...new Set(draggedIds)]
+            if (uniqueIds.length === 0) return
+            const idSet = new Set(uniqueIds)
+
+            if (dest.kind === 'intoFolder' && idSet.has(dest.folderId)) return
+
+            const live = useAppStore.getState().collections
+            const sourceCol = live.find((c) => c.id === sourceCollectionId)
+            const destCol = live.find((c) => c.id === destCollectionId)
+            if (!sourceCol || !destCol) return
+
+            const sourceItems = structuredClone(sourceCol.items || [])
+            const destItems =
+                sourceCollectionId === destCollectionId ? sourceItems : structuredClone(destCol.items || [])
+
+            const collected: any[] = []
+            collectTopLevelSelectedItems(sourceItems, idSet, collected)
+            if (collected.length === 0) return
+
+            if (dest.kind === 'intoFolder') {
+                for (const node of collected) {
+                    if (node.type === 'folder' && folderContainsId(node, dest.folderId)) return
+                }
+                const folder = findTreeItem(destItems, dest.folderId)
+                if (!folder || folder.type !== 'folder') return
+            }
+
+            if (dest.kind === 'beforeItem') {
+                const target = findTreeItem(destItems, dest.itemId)
+                if (!target) return
+                if (idSet.has(dest.itemId)) return
+            }
+
+            removeItemsById(sourceItems, idSet)
+
+            if (dest.kind === 'intoFolder') {
+                const folder = findTreeItem(destItems, dest.folderId)
+                if (!folder || folder.type !== 'folder') return
+                folder.items = folder.items || []
+                folder.items.push(...collected)
+            } else if (dest.kind === 'beforeItem') {
+                const loc = findItemLocation(destItems, dest.itemId)
+                if (!loc) return
+                loc.list.splice(loc.index, 0, ...collected)
+            } else {
+                destItems.push(...collected)
+            }
+
+            const state = useAppStore.getState()
+            if (state.sidebarSelection?.collectionId === sourceCollectionId) {
+                state.clearSidebarSelection()
+            }
+
+            await persistCollectionItems(sourceCollectionId, sourceItems)
+            if (sourceCollectionId !== destCollectionId) {
+                await persistCollectionItems(destCollectionId, destItems)
+            }
+        },
+        []
+    )
+
+    const moveTreeItem = useCallback(
+        async (collectionId: number, draggedId: string, dest: TreeMoveDestination) => {
+            await transferTreeItems(collectionId, collectionId, [draggedId], dest)
+        },
+        [transferTreeItems]
+    )
+
+    const moveTreeItems = useCallback(
+        async (collectionId: number, draggedIds: string[], dest: TreeMoveDestination) => {
+            await transferTreeItems(collectionId, collectionId, draggedIds, dest)
+        },
+        [transferTreeItems]
+    )
+
+    const reorderSiblingsMulti = useCallback(
+        async (collectionId: number, activeId: string, overId: string, draggedIds: string[]) => {
+            const idSet = new Set(draggedIds.includes(activeId) ? draggedIds : [activeId])
+            if (idSet.has(overId) && idSet.size === 1) return
+
+            const live = useAppStore.getState().collections
+            const collection = live.find((c) => c.id === collectionId)
+            if (!collection) return
+            const items = structuredClone(collection.items || [])
+            const locA = findItemLocation(items, activeId)
+            const locB = findItemLocation(items, overId)
+            if (!locA || !locB) return
+            if (locA.parentFolderId !== locB.parentFolderId) return
+
+            const { list } = locA
+            const moving = list.filter((item) => idSet.has(item.id))
+            if (moving.length === 0) return
+
+            const oldOverIndex = list.findIndex((item) => item.id === overId)
+            const oldFirstMoving = list.findIndex((item) => idSet.has(item.id))
+            const remaining = list.filter((item) => !idSet.has(item.id))
+
+            let insertIdx = remaining.findIndex((item) => item.id === overId)
+            if (insertIdx === -1) insertIdx = remaining.length
+            else if (oldFirstMoving < oldOverIndex) insertIdx += 1
+
+            remaining.splice(insertIdx, 0, ...moving)
+            list.splice(0, list.length, ...remaining)
+
+            useAppStore.getState().updateCollection(collectionId, { items })
+            await ensureReplicaLoaded()
+            const wid = useAppStore.getState().activeWorkspaceId
+            if (wid != null) snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
+            await writeCollectionPatch(collectionId, { items })
+        },
+        []
+    )
 
     const reorderSiblings = useCallback(async (collectionId: number, activeId: string, overId: string) => {
-        if (activeId === overId) return
-        const live = useAppStore.getState().collections
-        const collection = live.find((c) => c.id === collectionId)
-        if (!collection) return
-        const items = structuredClone(collection.items || [])
-        const locA = findItemLocation(items, activeId)
-        const locB = findItemLocation(items, overId)
-        if (!locA || !locB) return
-        if (locA.parentFolderId !== locB.parentFolderId) return
-        const { list, index: oldIndex } = locA
-        const { index: newIndex } = locB
-        if (oldIndex === newIndex) return
-        const next = arrayMove(list, oldIndex, newIndex)
-        list.splice(0, list.length, ...next)
-        useAppStore.getState().updateCollection(collectionId, { items })
-        await ensureReplicaLoaded()
-        const wid = useAppStore.getState().activeWorkspaceId
-        if (wid != null) snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
-        await writeCollectionPatch(collectionId, { items })
-    }, [])
+        await reorderSiblingsMulti(collectionId, activeId, overId, [activeId])
+    }, [reorderSiblingsMulti])
 
     return {
         createCollection,
         saveRequestItem,
         addFolder,
         deleteItem,
+        deleteItems,
         renameItem,
         renameCollection,
         deleteCollection,
         duplicateItem,
         addRequest,
+        addWebSocketRequest,
         updateCollectionSettings,
         updateFolderSettings,
         persistRequestItem,
         moveTreeItem,
+        moveTreeItems,
+        transferTreeItems,
         reorderSiblings,
+        reorderSiblingsMulti,
     }
 }
 
-function findItem(items: any[], id: string): any {
-    for (const item of items) {
-        if (item.id === id) return item
-        if (item.type === 'folder' && item.items) {
-            const found = findItem(item.items, id)
-            if (found) return found
-        }
-    }
-    return null
-}
-
-function findItemLocation(
-    items: any[],
-    itemId: string,
-    parentFolderId: string | null = null
-): { list: any[]; parentFolderId: string | null; index: number } | null {
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].id === itemId) return { list: items, parentFolderId, index: i }
-        if (items[i].type === 'folder' && items[i].items) {
-            const found = findItemLocation(items[i].items, itemId, items[i].id)
-            if (found) return found
-        }
-    }
-    return null
-}
-
-function removeItem(items: any[], id: string): boolean {
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].id === id) {
-            items.splice(i, 1)
-            return true
-        }
-        if (items[i].type === 'folder' && items[i].items) {
-            if (removeItem(items[i].items, id)) return true
-        }
-    }
-    return false
-}
-
-function extractItem(items: any[], id: string): any | null {
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].id === id) return items.splice(i, 1)[0]
-        if (items[i].type === 'folder' && items[i].items) {
-            const found = extractItem(items[i].items, id)
-            if (found) return found
-        }
-    }
-    return null
-}
-
-function folderContainsId(node: any, id: string): boolean {
-    if (node.id === id) return true
-    for (const ch of node.items || []) {
-        if (ch.id === id) return true
-        if (ch.type === 'folder' && folderContainsId(ch, id)) return true
-    }
-    return false
-}
-
-export type TreeMoveDestination = { kind: 'intoFolder'; folderId: string } | { kind: 'rootEnd' }
+export type TreeMoveDestination =
+    | { kind: 'intoFolder'; folderId: string }
+    | { kind: 'rootEnd' }
+    | { kind: 'beforeItem'; itemId: string }
 
 export type TreeDropPayload = TreeMoveDestination & { collectionId: number }

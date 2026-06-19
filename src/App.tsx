@@ -238,6 +238,18 @@ export default function App() {
         }
     }, [])
 
-    if (!instanceOnboardingComplete) return <InstanceOnboarding />
-    return isAuthenticated ? <AppShell /> : <AuthPage />
+    if (!instanceOnboardingComplete) {
+        return (
+            <div className="flex h-full min-h-0 flex-col">
+                <InstanceOnboarding />
+            </div>
+        )
+    }
+    return isAuthenticated ? (
+        <AppShell />
+    ) : (
+        <div className="flex h-full min-h-0 flex-col">
+            <AuthPage />
+        </div>
+    )
 }

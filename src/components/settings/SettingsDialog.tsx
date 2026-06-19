@@ -27,7 +27,7 @@ import {
 import { setThemeAccent } from '@/lib/themeAccent'
 import { useAuthStore } from '@/store/authStore'
 import { useInstanceStore } from '@/store/instanceStore'
-import { Info, KeyRound, Palette, Server, Settings, X } from 'lucide-react'
+import { Info, KeyRound, Palette, Server, Settings } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import appPkg from '../../../package.json'
@@ -35,6 +35,7 @@ import tauriConfig from '../../../src-tauri/tauri.conf.json'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
+import { SidebarDialog } from '../ui/sidebar-dialog'
 
 const cleanSemver = (v?: string) => (v ?? '').replace(/^[~^]/, '')
 const majorSemver = (v?: string) => cleanSemver(v).split('.')[0] || cleanSemver(v)
@@ -222,8 +223,6 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         }
     }
 
-    if (!open) return null
-
     const saveGeneral = () => {
         set('timeout', timeout)
         set('sslVerify', sslVerify)
@@ -285,37 +284,16 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         : null
 
     return (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-            <div className="relative flex h-[80vh] w-[800px] max-w-[95vw] rounded-lg border border-border bg-background shadow-2xl overflow-hidden">
-                {/* Sidebar */}
-                <div className="w-48 shrink-0 border-r border-border bg-muted/20 flex flex-col gap-0.5 p-2 pt-4">
-                    <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        {t('settings.title')}
-                    </p>
-                    {NAV_ITEMS.map((item) => (
-                        <button
-                            key={item.id}
-                            onClick={() => setSection(item.id)}
-                            className={`flex items-center gap-2.5 rounded px-3 py-2 text-sm text-left transition-colors ${section === item.id
-                                ? 'bg-accent/20 text-foreground'
-                                : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
-                                }`}
-                        >
-                            {item.icon}
-                            {item.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto p-8">
-                    <button
-                        onClick={onClose}
-                        className="absolute top-4 right-4 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                    >
-                        <X className="h-5 w-5" />
-                    </button>
-
+        <SidebarDialog
+            open={open}
+            onClose={onClose}
+            navLabel={t('settings.title')}
+            navItems={NAV_ITEMS}
+            activeSection={section}
+            onSectionChange={setSection}
+            sidebarClassName="w-48"
+            contentClassName="pt-8"
+        >
                     {section === 'general' && (
                         <div className="space-y-8">
                             <h2 className="text-xl font-semibold">{t('settings.generalTitle')}</h2>
@@ -924,8 +902,6 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                             </div>
                         </div>
                     )}
-                </div>
-            </div>
-        </div>
+        </SidebarDialog>
     )
 }

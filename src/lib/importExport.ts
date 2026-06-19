@@ -1,8 +1,19 @@
 import type { Collection, Environment, RequestBody } from '../types'
 import { nanoid } from 'nanoid'
+import { normalizeRequestQuery, splitUrlQuery } from './query-params'
 
 type ImportedCollection = Omit<Collection, 'id' | 'userId' | 'workspaceId' | 'createdAt' | 'updatedAt'>
 type ImportedEnvironment = { name: string; variables: Array<{ key: string; value: string; enabled: boolean }> }
+
+function parsePostmanEnvironment(data: Record<string, unknown>): ImportedEnvironment {
+    const values = data.values
+    if (!Array.isArray(values)) {
+        throw new Error('Not a Postman environment file (missing "values" array)')
+    }
+    const name =
+        typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Imported environment'
+    return { name, variables: parseEnvVariables(values) }
+}
 
 /** Normalize Postman request (object or URL string) for import. */
 function normalizePostmanRequest(item: any): any {
@@ -121,10 +132,11 @@ function parseEnvVariables(input: unknown): Array<{ key: string; value: string; 
             const row = v as Record<string, unknown>
             const key = typeof row.key === 'string' ? row.key.trim() : ''
             if (!key) return null
+            const enabled = 'disabled' in row ? row.disabled !== true : row.enabled !== false
             return {
                 key,
                 value: row.value === null || row.value === undefined ? '' : String(row.value),
-                enabled: row.enabled !== false,
+                enabled,
             }
         })
         .filter((v): v is { key: string; value: string; enabled: boolean } => v !== null)
@@ -137,7 +149,8 @@ function parseDotEnv(input: string): ImportedEnvironment {
         if (!line || line.startsWith('#')) continue
         const eq = line.indexOf('=')
         if (eq === -1) continue
-        const key = line.slice(0, eq).trim()
+        let key = line.slice(0, eq).trim()
+        if (key.toLowerCase().startsWith('export ')) key = key.slice('export '.length).trim()
         if (!key) continue
         let value = line.slice(eq + 1).trim()
         if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
@@ -162,11 +175,7 @@ function parseEnvironmentObject(data: unknown): ImportedEnvironment | null {
     }
 
     if (Array.isArray(row.values)) {
-        const name =
-            typeof row.name === 'string' && row.name.trim()
-                ? row.name.trim()
-                : 'Imported environment'
-        return { name, variables: parseEnvVariables(row.values) }
+        return parsePostmanEnvironment(row)
     }
 
     // ZReq bundle entries / inline: { name?, variables: [...] }
@@ -189,11 +198,14 @@ export function importEnvironments(input: string): ImportedEnvironment[] {
 
     const data = JSON.parse(input) as unknown
     if (Array.isArray(data)) {
+        if (data.length === 0) throw new Error('No environments found in file')
         const list = data.map((entry) => parseEnvironmentObject(entry))
         if (list.some((item) => item == null)) {
             throw new Error('Unknown environment format in array entry')
         }
-        return list as ImportedEnvironment[]
+        const result = list as ImportedEnvironment[]
+        if (result.length === 0) throw new Error('No environments found in file')
+        return result
     }
 
     if (data && typeof data === 'object') {
@@ -207,7 +219,9 @@ export function importEnvironments(input: string): ImportedEnvironment[] {
             if (list.some((item) => item == null)) {
                 throw new Error('Unknown environment format in bundle entry')
             }
-            return list as ImportedEnvironment[]
+            const result = list as ImportedEnvironment[]
+            if (result.length === 0) throw new Error('No environments found in file')
+            return result
         }
         // Postman-style dump: { environments: [ { name, values }, ... ] }
         if (Array.isArray(row.environments)) {
@@ -215,7 +229,9 @@ export function importEnvironments(input: string): ImportedEnvironment[] {
             if (list.some((item) => item == null)) {
                 throw new Error('Unknown environment format in bundle entry')
             }
-            return list as ImportedEnvironment[]
+            const result = list as ImportedEnvironment[]
+            if (result.length === 0) throw new Error('No environments found in file')
+            return result
         }
         const single = parseEnvironmentObject(row)
         if (single) return [single]
@@ -316,27 +332,34 @@ function importPostmanItems(items: any[]): any[] {
         // It's a request
         const req = normalizePostmanRequest(item)
         const method = req.method || 'GET'
-        const url = typeof req.url === 'string' ? req.url : req.url?.raw || ''
+        const rawUrl = typeof req.url === 'string' ? req.url : req.url?.raw || ''
         const headerList = Array.isArray(req.header) ? req.header : []
         const queryList = Array.isArray(req.url?.query) ? req.url.query : []
+        const paramsFromList = queryList.map((q: any) => ({
+            id: nanoid(),
+            key: q.key,
+            value: q.value,
+            enabled: !q.disabled,
+        }))
+        const normalized =
+            queryList.length > 0
+                ? { url: splitUrlQuery(rawUrl).baseUrl, params: paramsFromList }
+                : normalizeRequestQuery({ url: rawUrl, params: [] })
+        const isWs = /^wss?:\/\//i.test(normalized.url)
         return {
             id: nanoid(),
             type: 'request',
             name: item.name ?? 'Untitled',
             method,
-            url,
+            url: normalized.url,
+            protocol: isWs ? 'ws' : 'http',
             headers: headerList.map((h: any) => ({
                 id: nanoid(),
                 key: h.key,
                 value: h.value,
                 enabled: !h.disabled,
             })),
-            params: queryList.map((q: any) => ({
-                id: nanoid(),
-                key: q.key,
-                value: q.value,
-                enabled: !q.disabled,
-            })),
+            params: normalized.params,
             body: importPostmanBody(req),
             auth: { type: 'none' },
         }

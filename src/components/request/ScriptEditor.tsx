@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import CodeMirror from '@uiw/react-codemirror'
 import { javascript } from '@codemirror/lang-javascript'
+import { placeholder as cmPlaceholder } from '@codemirror/view'
 import { BookOpen, XIcon } from 'lucide-react'
 import {
     appCodeMirrorBodyTooltips,
@@ -31,6 +32,7 @@ interface ScriptEditorProps {
     placeholder?: string
     label?: string
     docVariant?: ScriptDocVariant
+    variant?: 'default' | 'embedded'
 }
 
 function readApiRows(t: TFunction, key: string): ScriptDocApiRow[] {
@@ -38,7 +40,14 @@ function readApiRows(t: TFunction, key: string): ScriptDocApiRow[] {
     return Array.isArray(raw) ? (raw as ScriptDocApiRow[]) : []
 }
 
-export default function ScriptEditor({ value, onChange, label, docVariant }: ScriptEditorProps) {
+export default function ScriptEditor({
+    value,
+    onChange,
+    label,
+    placeholder,
+    docVariant,
+    variant = 'default',
+}: ScriptEditorProps) {
     const { t } = useTranslation()
     const [docsOpen, setDocsOpen] = useState(false)
 
@@ -73,24 +82,35 @@ export default function ScriptEditor({ value, onChange, label, docVariant }: Scr
             appJavaScriptSyntaxHighlight,
             appCodeMirrorChromeTheme,
         ]
+        if (placeholder?.trim()) {
+            ext.push(cmPlaceholder(placeholder))
+        }
         if (docVariant) {
             ext.push(scriptPmAutocompletion(docVariant, describePm))
         }
         return ext
-    }, [docVariant, describePm])
+    }, [docVariant, describePm, placeholder])
 
     const titleKey = docVariant === 'post' ? 'request.scriptDocs.postTitle' : 'request.scriptDocs.preTitle'
     const introKey = docVariant === 'post' ? 'request.scriptDocs.postIntro' : 'request.scriptDocs.preIntro'
     const noteKey = docVariant === 'post' ? 'request.scriptDocs.postNote' : 'request.scriptDocs.preNote'
 
+    const embedded = variant === 'embedded'
+
     const editor = (
-        <div className="min-h-[180px] flex-1 overflow-hidden rounded-md border border-border">
+        <div
+            className={
+                embedded
+                    ? 'min-h-0 flex-1 overflow-hidden [&_.cm-editor]:flex [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-col [&_.cm-scroller]:min-h-0 [&_.cm-scroller]:flex-1'
+                    : 'min-h-[180px] flex-1 overflow-hidden rounded-md border border-border'
+            }
+        >
             <CodeMirror
                 value={value}
                 onChange={onChange}
                 theme="none"
-                height="100%"
-                style={{ height: '100%' }}
+                height={embedded ? '100%' : undefined}
+                style={embedded ? { height: '100%' } : { height: '100%' }}
                 extensions={extensions}
                 basicSetup={{
                     lineNumbers: true,
@@ -101,16 +121,21 @@ export default function ScriptEditor({ value, onChange, label, docVariant }: Scr
                     bracketMatching: true,
                     closeBrackets: true,
                     autocompletion: true,
-                    highlightActiveLine: true,
+                    highlightActiveLine: false,
                 }}
+                className={
+                    embedded
+                        ? 'h-full min-h-0 text-xs [&_.cm-editor]:rounded-none [&_.cm-editor]:text-xs [&_.cm-gutters]:rounded-none'
+                        : undefined
+                }
             />
         </div>
     )
 
     if (!docVariant) {
         return (
-            <div className="flex h-full flex-col gap-2 p-3">
-                {label && <p className="text-xs text-muted-foreground">{label}</p>}
+            <div className={embedded ? 'flex h-full flex-col' : 'flex h-full flex-col gap-2 p-3'}>
+                {label && !embedded && <p className="text-xs text-muted-foreground">{label}</p>}
                 {editor}
             </div>
         )
@@ -118,12 +143,20 @@ export default function ScriptEditor({ value, onChange, label, docVariant }: Scr
 
     return (
         <Drawer direction="right" open={docsOpen} onOpenChange={setDocsOpen}>
-            <div className="flex h-full flex-col gap-2 p-3">
-                <div className="flex items-start justify-between gap-2">
-                    {label && <p className="min-w-0 flex-1 text-xs text-muted-foreground">{label}</p>}
+            <div className={embedded ? 'flex h-full min-h-0 flex-col' : 'flex h-full flex-col gap-2 p-3'}>
+                <div
+                    className={
+                        embedded
+                            ? 'border-border flex shrink-0 items-center justify-end border-b px-3 py-1.5'
+                            : 'flex items-start justify-between gap-2'
+                    }
+                >
+                    {label && !embedded && (
+                        <p className="min-w-0 flex-1 text-xs text-muted-foreground">{label}</p>
+                    )}
                     <Button
                         type="button"
-                        variant="outline"
+                        variant={embedded ? 'ghost' : 'outline'}
                         size="sm"
                         className="shrink-0 gap-1.5"
                         onClick={() => setDocsOpen(true)}

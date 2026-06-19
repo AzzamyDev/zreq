@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronsUpDown, Settings2 } from 'lucide-react'
+import { ChevronsUpDown, Layers, Settings2 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Button } from '../ui/button'
 import {
@@ -47,7 +47,10 @@ export default function EnvironmentSelector() {
                             'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
                         )}
                     >
-                        <span className="truncate text-left">{label}</span>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                            <Layers className="size-3.5 shrink-0 opacity-60" />
+                            <span className="truncate text-left">{label}</span>
+                        </span>
                         <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
                     </PopoverTrigger>
                     <PopoverContent className="w-56 p-0" align="end" sideOffset={6}>

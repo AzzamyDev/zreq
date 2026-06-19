@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ArrowLeftRight } from 'lucide-react'
 import AuthShell from './AuthShell'
 import LoginForm from './LoginForm'
 import RegisterForm from './RegisterForm'
@@ -13,7 +14,7 @@ export default function AuthPage() {
 
     return (
         <AuthShell
-            pill={t('auth.appTitle')}
+            showInstanceBadge
             title={mode === 'login' ? t('auth.signIn') : t('auth.register')}
             description={
                 mode === 'login' ? t('auth.signInSubtitle') : t('auth.registerSubtitle')
@@ -22,13 +23,13 @@ export default function AuthPage() {
             {mode === 'login' ? <LoginForm /> : <RegisterForm />}
             <GitHubOAuthButton />
 
-            <p className="text-muted-foreground text-center text-sm">
+            <p className="text-center text-[13px] text-[var(--auth-nebula-fg-soft)]">
                 {mode === 'login' ? (
                     <>
                         {t('auth.noAccount')}{' '}
                         <button
                             type="button"
-                            className="text-primary font-medium underline-offset-4 hover:underline"
+                            className="auth-nebula-link"
                             onClick={() => setMode('register')}
                         >
                             {t('auth.register')}
@@ -39,7 +40,7 @@ export default function AuthPage() {
                         {t('auth.haveAccount')}{' '}
                         <button
                             type="button"
-                            className="text-primary font-medium underline-offset-4 hover:underline"
+                            className="auth-nebula-link"
                             onClick={() => setMode('login')}
                         >
                             {t('auth.signIn')}
@@ -48,15 +49,14 @@ export default function AuthPage() {
                 )}
             </p>
 
-            <p className="text-center">
-                <button
-                    type="button"
-                    className="text-muted-foreground hover:text-foreground text-xs underline-offset-4 hover:underline"
-                    onClick={() => returnToInstanceSetup()}
-                >
-                    {t('auth.changeBackendLink')}
-                </button>
-            </p>
+            <button
+                type="button"
+                className="auth-nebula-muted-link mx-auto mt-0.5 w-full"
+                onClick={() => returnToInstanceSetup()}
+            >
+                <ArrowLeftRight className="size-3.5" aria-hidden />
+                {t('auth.changeBackendLink')}
+            </button>
         </AuthShell>
     )
 }

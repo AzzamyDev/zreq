@@ -10,6 +10,8 @@ import ResponseBody from './ResponseBody'
 import ResponseHeaders from './ResponseHeaders'
 import ResponseCookies from './ResponseCookies'
 import ConsolePanel from './ConsolePanel'
+import WsMessagePanel from './WsMessagePanel'
+import WsConnectionStats from './WsConnectionStats'
 
 function Spinner() {
     return (
@@ -39,8 +41,16 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
     const { t } = useTranslation()
     const [activeTab, setActiveTab] = useState<string>('body')
     const [panelCollapsed, setPanelCollapsed] = useState(false)
-    const { response, isLoading } = useAppStore()
+    const { response, isLoading, activeRequest, activeTabId, tabs } = useAppStore()
     const consoleLogs = useAppStore((s) => s.consoleLogs)
+
+    const protocol = activeRequest.protocol ?? 'http'
+    const isWs = protocol === 'ws'
+    const activeTabData = tabs.find((t) => t.id === activeTabId)
+    const wsFrames = activeTabData?.wsFrames ?? []
+    const wsHandshake = activeTabData?.wsHandshake ?? null
+    const wsState = activeTabData?.wsState ?? 'idle'
+    const wsConnectedAt = activeTabData?.wsConnectedAt ?? null
 
     const togglePanelCollapse = () => {
         const p = responsePanelRef.current
@@ -59,7 +69,15 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
     const header = (
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 pr-1">
             <div className="flex min-h-9 min-w-0 flex-1 items-center">
-                {isLoading ? (
+                {isWs ? (
+                    <WsConnectionStats
+                        wsState={wsState}
+                        frameCount={wsFrames.length}
+                        wsConnectedAt={wsConnectedAt}
+                        handshake={wsHandshake}
+                        className="min-w-0 flex-1 border-0 bg-transparent"
+                    />
+                ) : isLoading ? (
                     <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
                         <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
                         {t('response.loading')}
@@ -90,16 +108,7 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
         </div>
     )
 
-    if (isLoading) {
-        return (
-            <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                {header}
-                {!panelCollapsed && <Spinner />}
-            </div>
-        )
-    }
-
-    if (!response) {
+    if (isWs) {
         return (
             <div className="flex h-full min-h-0 flex-col overflow-hidden">
                 {header}
@@ -112,13 +121,7 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                         <div className="w-full border-b border-border">
                             <TabsList variant="line" className="w-fit justify-start rounded-none px-3">
                                 <TabsTrigger className="w-[120px]" value="body">
-                                    {t('response.body')}
-                                </TabsTrigger>
-                                <TabsTrigger className="w-[120px]" value="headers">
-                                    {t('response.headers')}
-                                </TabsTrigger>
-                                <TabsTrigger className="w-[120px]" value="cookies">
-                                    {t('response.cookies')}
+                                    {t('websocket.frames')}
                                 </TabsTrigger>
                                 <TabsTrigger className="w-[120px]" value="console">
                                     {t('response.console')}
@@ -131,19 +134,7 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                             </TabsList>
                         </div>
                         <TabsContent value="body" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                                {t('response.sendToSee')}
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="headers" className="min-h-0 flex-1 overflow-hidden">
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                                {t('response.sendToSee')}
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="cookies" className="min-h-0 flex-1 overflow-hidden">
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                                {t('response.sendToSee')}
-                            </div>
+                            <WsMessagePanel frames={wsFrames} handshake={wsHandshake} />
                         </TabsContent>
                         <TabsContent value="console" className="min-h-0 flex-1 overflow-hidden">
                             <ConsolePanel />
@@ -154,7 +145,12 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
         )
     }
 
-    const contentType = response.headers['content-type'] ?? response.headers['Content-Type']
+    const contentType = response?.headers['content-type'] ?? response?.headers['Content-Type']
+    const emptyHint = (
+        <div className="flex h-full min-h-[8rem] items-center justify-center text-sm text-muted-foreground">
+            {t('response.sendToSee')}
+        </div>
+    )
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -187,13 +183,19 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                         </TabsList>
                     </div>
                     <TabsContent value="body" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <ResponseBody body={response.body} contentType={contentType} />
+                        {isLoading && !response ? (
+                            <Spinner />
+                        ) : response ? (
+                            <ResponseBody body={response.body} contentType={contentType} />
+                        ) : (
+                            emptyHint
+                        )}
                     </TabsContent>
                     <TabsContent value="headers" className="min-h-0 flex-1 overflow-auto">
-                        <ResponseHeaders headers={response.headers} />
+                        {response ? <ResponseHeaders headers={response.headers} /> : emptyHint}
                     </TabsContent>
                     <TabsContent value="cookies" className="min-h-0 flex-1 overflow-auto">
-                        <ResponseCookies response={response} />
+                        {response ? <ResponseCookies response={response} /> : emptyHint}
                     </TabsContent>
                     <TabsContent value="console" className="min-h-0 flex-1 overflow-hidden">
                         <ConsolePanel />

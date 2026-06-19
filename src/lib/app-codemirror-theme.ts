@@ -12,16 +12,19 @@ import { tags as t } from '@lezer/highlight'
  */
 export const appCodeMirrorChromeTheme = EditorView.theme(
     {
-        '&': { backgroundColor: 'var(--card)', color: 'var(--foreground)' },
+        '&': { backgroundColor: 'var(--background)', color: 'var(--foreground)' },
         '.cm-scroller': {
-            backgroundColor: 'var(--card)',
+            backgroundColor: 'var(--background)',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-            lineHeight: '1.55',
+            fontSize: '12px',
+            lineHeight: '1.45',
         },
         '.cm-content': {
-            paddingTop: '8px',
-            paddingBottom: '12px',
+            padding: '0',
             caretColor: 'var(--ring)',
+        },
+        '.cm-line': {
+            padding: '0 8px 0 2px',
         },
         '&.cm-focused > .cm-scroller > .cm-cursorLayer .cm-cursor': {
             borderLeft: '2px solid var(--ring)',
@@ -32,23 +35,47 @@ export const appCodeMirrorChromeTheme = EditorView.theme(
             marginLeft: '-1px',
         },
         '.cm-gutters': {
-            backgroundColor: 'var(--muted)',
-            color: 'var(--muted-foreground)',
+            backgroundColor: 'var(--background)',
+            color: 'color-mix(in srgb, var(--muted-foreground) 85%, transparent)',
             border: 'none',
-            borderRight: '1px solid var(--border)',
+        },
+        '.cm-gutters.cm-gutters-before': {
+            borderRight: 'none',
+            borderRightWidth: '0',
+        },
+        '.cm-gutters.cm-gutters-after': {
+            borderLeft: 'none',
+            borderLeftWidth: '0',
+        },
+        '.cm-gutter': {
+            minHeight: '100%',
+            border: 'none',
         },
         '.cm-lineNumbers .cm-gutterElement': {
-            minWidth: '2.5rem',
-            padding: '0 10px 0 8px',
+            minWidth: '1.75rem',
+            padding: '0 6px 0 4px',
             textAlign: 'right',
+            fontSize: '11px',
+        },
+        '.cm-foldGutter .cm-gutterElement': {
+            padding: '0 2px',
+            width: '0.75rem',
+            color: 'color-mix(in srgb, var(--muted-foreground) 70%, transparent)',
         },
         '.cm-activeLineGutter': {
-            backgroundColor: 'color-mix(in srgb, var(--foreground) 6%, transparent)',
+            backgroundColor: 'transparent',
+            color: 'var(--muted-foreground)',
         },
         '.cm-activeLine': {
-            backgroundColor: 'color-mix(in srgb, var(--foreground) 5%, transparent)',
+            backgroundColor: 'transparent',
         },
-        '.cm-foldGutter .cm-gutterElement': { color: 'var(--muted-foreground)' },
+        '.cm-matchingBracket, .cm-nonmatchingBracket': {
+            backgroundColor: 'transparent !important',
+            outline: 'none !important',
+            border: 'none !important',
+            boxShadow: 'none !important',
+            color: 'var(--dracula-cyan) !important',
+        },
         '.cm-selectionBackground': {
             background: 'color-mix(in srgb, var(--ring) 32%, transparent) !important',
         },

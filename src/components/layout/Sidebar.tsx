@@ -8,14 +8,12 @@ import CollectionTree from '../collection/CollectionTree'
 import { importCollections } from '../../lib/importExport'
 import { createLocalCollection } from '@/lib/local-replica/local-write'
 import { useAppStore } from '../../store'
-import { useSyncStore } from '@/store/syncStore'
 import { toast } from 'sonner'
 
 export default function Sidebar() {
     const { t } = useTranslation()
     const [openNew, setOpenNew] = useState(false)
     const { activeWorkspaceId } = useAppStore()
-    const pendingOutbox = useSyncStore((s) => s.pendingOutbox)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -58,16 +56,8 @@ export default function Sidebar() {
     return (
         <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
             <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-2">
-                <span className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    <span className="truncate">{t('sidebar.collections')}</span>
-                    {pendingOutbox > 0 ? (
-                        <span
-                            className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium normal-case text-amber-800 dark:text-amber-200"
-                            title={t('sync.sidebarPending')}
-                        >
-                            {pendingOutbox}
-                        </span>
-                    ) : null}
+                <span className="truncate text-xs font-medium text-muted-foreground tracking-wider">
+                    {t('sidebar.collections')}
                 </span>
                 <div className="flex items-center gap-0.5">
                     <Button

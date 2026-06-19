@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.2.0](https://github.com/AzzamyDev/zreq/compare/v1.1.0...v1.2.0) (2026-06-20)
+
+
+### Features
+
+* add WebSocket request support with live message stream, subprotocols, binary/ping-pong, and saved messages in collections (Rust `tokio-tungstenite` + Tauri events)
+* add bidirectional URL ↔ Params sync (Postman-style); query string in URL bar and Params tab stay in sync
+* add custom frameless window with native drag region and window controls on desktop
+* redesign auth screens, profile dialog, and environment manager for a cleaner workflow
+* overhaul UI theme with Dracula-inspired palette and improved CodeMirror styling
+* improve conflict resolution dialog with line diff, raw JSON, and field-level summaries
+* add Tauri dialog and filesystem plugins for loading binary WebSocket payloads from file
+* add vitest test infrastructure and unit tests for query-params parsing
+* improve environment import (Postman, ZReq, `.env`) with validation and workspace guards
+* improve sync engine outbox handling and local-write consistency
+* add HTTP method color theming and protocol selector (HTTP / WebSocket)
+* simplify workspace switcher and refine collection sidebar for WebSocket requests
+* persist WebSocket request fields (`protocol`, `subprotocols`, `savedMessages`, `messageTemplate`) through autosave, manual save, and sync round-trip
+* add shared `buildPersistPayload` helper for consistent HTTP/WS save payloads
+* differentiate collection sidebar icons — Globe for HTTP, Radio (cyan) for WebSocket
+* add Request / WebSocket picker on folder and collection **+** buttons for quick WS creation
+
+
+### Bug Fixes
+
+* fix WebSocket requests reverting to HTTP after refresh when `protocol` was dropped during autosave or server sync
+* infer WebSocket protocol from `ws://` / `wss://` URL when legacy items lack an explicit `protocol` field
+* fix imported environments disappearing after background sync
+* fix collection and folder settings forms resetting while editing variables during sync
+* fix duplicate query strings when URL already contained params and the Params tab had entries
+* fix environment create ops being dropped from outbox when temp IDs were reconciled during sync
+
 ## [1.1.0](https://github.com/AzzamyDev/zreq/compare/v1.0.3...v1.1.0) (2026-04-08)
 
 
@@ -33,8 +65,6 @@
 
 * remove duplicate 'zreq' property in exportCollection function for cleaner JSON output ([c69daca](https://github.com/AzzamyDev/zreq/commit/c69dacad5f94872e2b7f7c7187b583b0af9c8ebe))
 
-## Changelog
-
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.

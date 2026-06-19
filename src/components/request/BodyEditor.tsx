@@ -1,11 +1,20 @@
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { nanoid } from 'nanoid'
 import CodeMirror from '@uiw/react-codemirror'
 import { json, jsonLanguage } from '@codemirror/lang-json'
 import { linter, lintGutter } from '@codemirror/lint'
 import { keymap, type EditorView } from '@codemirror/view'
-import { Trash2 } from 'lucide-react'
+import { Braces, CircleHelp } from 'lucide-react'
+import {
+    jsonEditorIndentExtensions,
+    jsonEditorViewChrome,
+} from '../../lib/json-codemirror-setup'
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '../ui/tooltip'
 import {
     appCodeMirrorBodyTooltips,
     appCodeMirrorChromeTheme,
@@ -14,9 +23,10 @@ import {
 } from '../../lib/app-codemirror-theme'
 import type { RequestBody, BodyType, KV } from '../../types'
 import { jsonBodyTemplateAutocompletion, jsonTemplateVarDecorations } from '../../lib/codemirror-json-template'
-import { formatJsoncPreserveComments } from '../../lib/format-jsonc-body'
+import { tryFormatJsoncBody } from '../../lib/format-jsonc-body'
 import { stripJsonComments } from '../../lib/strip-json-comments'
 import KVEditor from './KVEditor'
+import FormDataEditor, { type FormDataPair, parseFormDataPairs } from './FormDataEditor'
 
 interface BodyEditorProps {
     body: RequestBody
@@ -26,18 +36,6 @@ interface BodyEditorProps {
 
 /** Body modes that share the same string `content` slot (switching among them should not wipe text). */
 const TEXT_BODY_TYPES = new Set<BodyType>(['none', 'json', 'raw'])
-type FormDataValueType = 'text' | 'file'
-type FormDataPair = KV & {
-    valueType?: FormDataValueType
-    fileName?: string
-    fileMimeType?: string
-    fileBase64?: string
-    fileParts?: {
-        name: string
-        mimeType: string
-        base64: string
-    }[]
-}
 
 function parsePairs(content: string): KV[] {
     try {
@@ -47,43 +45,6 @@ function parsePairs(content: string): KV[] {
         // ignore
     }
     return []
-}
-
-function parseFormDataPairs(content: string): FormDataPair[] {
-    try {
-        const parsed = JSON.parse(content)
-        if (!Array.isArray(parsed)) return []
-        return parsed
-            .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-            .map((row) => {
-                const valueType = row.valueType === 'file' ? 'file' : 'text'
-                return {
-                    id: typeof row.id === 'string' ? row.id : nanoid(),
-                    key: typeof row.key === 'string' ? row.key : '',
-                    value: typeof row.value === 'string' ? row.value : '',
-                    enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
-                    valueType,
-                    fileName: typeof row.fileName === 'string' ? row.fileName : undefined,
-                    fileMimeType: typeof row.fileMimeType === 'string' ? row.fileMimeType : undefined,
-                    fileBase64: typeof row.fileBase64 === 'string' ? row.fileBase64 : undefined,
-                    fileParts: Array.isArray(row.fileParts)
-                        ? row.fileParts
-                            .filter((part): part is Record<string, unknown> => typeof part === 'object' && part !== null)
-                            .map((part) => ({
-                                name: typeof part.name === 'string' ? part.name : 'upload.bin',
-                                mimeType:
-                                    typeof part.mimeType === 'string' && part.mimeType.trim()
-                                        ? part.mimeType
-                                        : 'application/octet-stream',
-                                base64: typeof part.base64 === 'string' ? part.base64 : '',
-                            }))
-                            .filter((part) => part.base64.length > 0)
-                        : undefined,
-                } satisfies FormDataPair
-            })
-    } catch {
-        return []
-    }
 }
 
 function defaultPairs(): KV[] {
@@ -103,7 +64,6 @@ function parseJsonBodyStatus(content: string): { kind: 'empty' } | { kind: 'ok' 
 
 export default function BodyEditor({ body, onChange }: BodyEditorProps) {
     const { t } = useTranslation()
-    const [uploadingRowId, setUploadingRowId] = useState<string | null>(null)
     const bodyTypes = useMemo(
         () =>
             [
@@ -143,24 +103,24 @@ export default function BodyEditor({ body, onChange }: BodyEditorProps) {
     const formatJsonBodyRef = useRef<(pretty: string) => void>(() => { })
     formatJsonBodyRef.current = (pretty: string) => onChange({ ...bodyRef.current, content: pretty })
 
+    const handleFormatJson = useCallback(() => {
+        const result = tryFormatJsoncBody(bodyRef.current.content || '')
+        if (result.ok) {
+            onChange({ ...bodyRef.current, content: result.formatted })
+        }
+    }, [onChange])
+
     const jsonBodyExtensions = useMemo(() => {
         const runFormatJson = (view: EditorView) => {
-            const raw = view.state.doc.toString()
-            if (!raw.trim()) return true
-            try {
-                JSON.parse(stripJsonComments(raw))
-            } catch {
-                return false
-            }
-            try {
-                formatJsonBodyRef.current(formatJsoncPreserveComments(raw))
-                return true
-            } catch {
-                return false
-            }
+            const result = tryFormatJsoncBody(view.state.doc.toString())
+            if (!result.ok) return false
+            formatJsonBodyRef.current(result.formatted)
+            return true
         }
         return [
             appCodeMirrorChromeTheme,
+            jsonEditorViewChrome,
+            ...jsonEditorIndentExtensions,
             appCodeMirrorBodyTooltips,
             json(),
             jsonLanguage.data.of({
@@ -245,77 +205,70 @@ export default function BodyEditor({ body, onChange }: BodyEditorProps) {
         return parseFormDataPairs(body.content)
     }
 
-    const fileToBase64 = async (file: File): Promise<string> => {
-        const buf = await file.arrayBuffer()
-        let binary = ''
-        const bytes = new Uint8Array(buf)
-        for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i])
-        }
-        return btoa(binary)
-    }
-
-    const updateFormPair = (id: string, patch: Partial<FormDataPair>) => {
-        const pairs = getFormDataPairs().map((p) => (p.id === id ? { ...p, ...patch } : p))
-        handleFormDataPairsChange(pairs)
-    }
-
-    const addFormPair = () => {
-        handleFormDataPairsChange([
-            ...getFormDataPairs(),
-            { id: nanoid(), key: '', value: '', enabled: true, valueType: 'text' },
-        ])
-    }
-
-    const removeFormPair = (id: string) => {
-        handleFormDataPairsChange(getFormDataPairs().filter((p) => p.id !== id))
-    }
-
-    const pickFileForPair = async (pairId: string, files: FileList | null) => {
-        if (!files || files.length === 0) return
-        setUploadingRowId(pairId)
-        try {
-            const fileParts = await Promise.all(
-                [...files].map(async (file) => ({
-                    name: file.name,
-                    mimeType: file.type || 'application/octet-stream',
-                    base64: await fileToBase64(file),
-                })),
-            )
-            const first = fileParts[0]
-            updateFormPair(pairId, {
-                valueType: 'file',
-                value: '',
-                fileName: first?.name,
-                fileMimeType: first?.mimeType,
-                fileBase64: first?.base64,
-                fileParts,
-            })
-        } finally {
-            setUploadingRowId(null)
-        }
-    }
-
     return (
         <div className="flex h-full min-h-0 flex-col">
             {/* Type selector */}
-            <div className="flex gap-1 border-b border-border px-3 py-2">
-                {bodyTypes.map((bt) => (
-                    <button
-                        key={bt.value}
-                        onClick={() => handleTypeChange(bt.value)}
-                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${body.type === bt.value
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                            }`}
-                    >
-                        {bt.label}
-                    </button>
-                ))}
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                <div className="flex min-w-0 flex-1 gap-1">
+                    {bodyTypes.map((bt) => (
+                        <button
+                            key={bt.value}
+                            onClick={() => handleTypeChange(bt.value)}
+                            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${body.type === bt.value
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                                }`}
+                        >
+                            {bt.label}
+                        </button>
+                    ))}
+                </div>
+                {body.type === 'json' && (
+                    <div className="inline-flex shrink-0 items-center gap-1">
+                        <TooltipProvider delay={200}>
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <button
+                                            type="button"
+                                            className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                            aria-label={t('request.jsonBodyHintTitle')}
+                                        >
+                                            <CircleHelp className="size-3.5" aria-hidden />
+                                        </button>
+                                    }
+                                />
+                                <TooltipContent
+                                    side="bottom"
+                                    align="end"
+                                    className="max-w-xs whitespace-normal text-left leading-relaxed"
+                                >
+                                    {t('request.jsonBodyHint')}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <button
+                            type="button"
+                            onClick={handleFormatJson}
+                            disabled={jsonBodyStatus?.kind !== 'ok'}
+                            title={t('request.formatJsonShortcut')}
+                            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded border border-border px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <Braces className="size-3.5" aria-hidden />
+                            {t('request.formatJson')}
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Body content */}
-            <div className="min-h-0 flex-1 overflow-auto p-3">
+            <div
+                className={
+                    body.type === 'json'
+                        ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+                        : 'min-h-0 flex-1 overflow-auto p-3'
+                }
+            >
                 {body.type === 'none' && (
                     <p className="text-sm text-muted-foreground">{t('request.noBody')}</p>
                 )}
@@ -325,44 +278,47 @@ export default function BodyEditor({ body, onChange }: BodyEditorProps) {
                     <div
                         className={
                             body.type === 'json'
-                                ? 'flex min-h-[200px] flex-1 flex-col gap-2'
+                                ? 'flex min-h-0 flex-1 flex-col'
                                 : 'hidden'
                         }
                     >
-                        <div className="min-h-[200px] w-full overflow-hidden rounded-md border border-input">
+                        <div className="min-h-0 flex-1 overflow-hidden [&_.cm-editor]:flex [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-col [&_.cm-scroller]:min-h-0 [&_.cm-scroller]:flex-1">
                             <CodeMirror
                                 value={body.content || ''}
                                 onChange={(v) => onChange({ ...bodyRef.current, content: v })}
                                 theme="none"
-                                height="220px"
+                                height="100%"
                                 extensions={jsonBodyExtensions}
                                 placeholder={t('request.jsonBodyPlaceholder')}
+                                className="json-body-cm h-full min-h-0 text-xs [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:rounded-none [&_.cm-editor]:text-xs [&_.cm-scroller]:font-mono"
                                 basicSetup={{
                                     lineNumbers: true,
-                                    foldGutter: true,
+                                    foldGutter: false,
                                     dropCursor: false,
                                     allowMultipleSelections: false,
                                     indentOnInput: true,
                                     bracketMatching: true,
                                     closeBrackets: true,
                                     autocompletion: true,
-                                    highlightActiveLine: true,
+                                    highlightActiveLine: false,
                                 }}
                             />
                         </div>
-                        {body.type === 'json' && jsonBodyStatus?.kind === 'error' && (
-                            <p className="text-xs text-destructive" role="status">
-                                {t('request.invalidJson', { message: jsonBodyStatus.message })}
-                            </p>
-                        )}
-                        {body.type === 'json' && jsonBodyStatus?.kind === 'ok' && (
-                            <p className="text-xs text-(--dracula-green)" role="status">
-                                {t('request.validJson')}
-                            </p>
-                        )}
-                        {body.type === 'json' && (
-                            <p className="text-xs text-muted-foreground">{t('request.jsonBodyHint')}</p>
-                        )}
+                        {(body.type === 'json' && jsonBodyStatus?.kind === 'error') ||
+                        (body.type === 'json' && jsonBodyStatus?.kind === 'ok') ? (
+                            <div className="shrink-0 border-t border-border px-3 py-1.5">
+                                {jsonBodyStatus?.kind === 'error' && (
+                                    <p className="text-xs text-destructive" role="status">
+                                        {t('request.invalidJson', { message: jsonBodyStatus.message })}
+                                    </p>
+                                )}
+                                {jsonBodyStatus?.kind === 'ok' && (
+                                    <p className="text-xs text-(--dracula-green)" role="status">
+                                        {t('request.validJson')}
+                                    </p>
+                                )}
+                            </div>
+                        ) : null}
                     </div>
                 )}
 
@@ -386,108 +342,11 @@ export default function BodyEditor({ body, onChange }: BodyEditorProps) {
                 )}
 
                 {body.type === 'form-data' && (
-                    <div className="space-y-2">
-                        <div className="grid grid-cols-[4.25rem_minmax(0,1fr)_9rem_minmax(0,1fr)_2.5rem] items-center gap-2 rounded-md border border-border px-2 py-1">
-                            <span className="truncate text-xs text-muted-foreground">{t('common.enabled', 'Enabled')}</span>
-                            <span className="text-xs text-muted-foreground">{t('common.key')}</span>
-                            <span className="text-xs text-muted-foreground">Type</span>
-                            <span className="text-xs text-muted-foreground">{t('common.value')}</span>
-                            <span />
-                        </div>
-                        {getFormDataPairs().map((pair) => (
-                            <div
-                                key={pair.id}
-                                className="grid grid-cols-[4.25rem_minmax(0,1fr)_9rem_minmax(0,1fr)_2.5rem] items-center gap-2 rounded-md border border-border px-2 py-1"
-                            >
-                                <label className="flex items-center gap-1.5 pl-1 text-[11px] text-muted-foreground">
-                                    <input
-                                        type="checkbox"
-                                        checked={pair.enabled}
-                                        onChange={(e) => updateFormPair(pair.id, { enabled: e.target.checked })}
-                                        className="h-4 w-4 cursor-pointer accent-primary"
-                                    />
-                                    <span>On</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={pair.key}
-                                    onChange={(e) => updateFormPair(pair.id, { key: e.target.value })}
-                                    placeholder={t('common.key')}
-                                    className="h-8 rounded border border-border bg-background px-2 text-xs"
-                                />
-                                <select
-                                    value={pair.valueType ?? 'text'}
-                                    onChange={(e) => {
-                                        const valueType = e.target.value === 'file' ? 'file' : 'text'
-                                        if (valueType === 'file') {
-                                            updateFormPair(pair.id, {
-                                                valueType: 'file',
-                                                value: '',
-                                            })
-                                            return
-                                        }
-                                        updateFormPair(pair.id, {
-                                            valueType: 'text',
-                                            fileName: undefined,
-                                            fileMimeType: undefined,
-                                            fileBase64: undefined,
-                                            fileParts: undefined,
-                                        })
-                                    }}
-                                    className="h-8 rounded border border-border bg-background px-2 text-xs"
-                                >
-                                    <option value="text">Text</option>
-                                    <option value="file">File</option>
-                                </select>
-                                {(pair.valueType ?? 'text') === 'file' ? (
-                                    <div className="flex min-w-0 items-center gap-2">
-                                        <label className="inline-flex h-8 cursor-pointer items-center rounded border border-border px-2 text-xs text-muted-foreground hover:bg-muted">
-                                            Choose files
-                                            <input
-                                                type="file"
-                                                multiple
-                                                className="hidden"
-                                                onChange={(e) => {
-                                                    void pickFileForPair(pair.id, e.target.files)
-                                                    e.currentTarget.value = ''
-                                                }}
-                                            />
-                                        </label>
-                                        <span className="truncate text-xs text-muted-foreground">
-                                            {uploadingRowId === pair.id
-                                                ? 'Uploading...'
-                                                : pair.fileParts && pair.fileParts.length > 1
-                                                    ? `${pair.fileParts.length} files selected`
-                                                    : pair.fileParts?.[0]?.name || pair.fileName || 'No file selected'}
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        value={pair.value}
-                                        onChange={(e) => updateFormPair(pair.id, { value: e.target.value })}
-                                        placeholder={t('common.value')}
-                                        className="h-8 rounded border border-border bg-background px-2 text-xs"
-                                    />
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => removeFormPair(pair.id)}
-                                    className="inline-flex h-8 items-center justify-center rounded border border-border px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                    title={t('common.remove')}
-                                >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                            </div>
-                        ))}
-                        <button
-                            type="button"
-                            onClick={addFormPair}
-                            className="h-8 rounded border border-border px-3 text-xs text-muted-foreground hover:bg-muted"
-                        >
-                            + Add row
-                        </button>
-                    </div>
+                    <FormDataEditor
+                        pairs={getFormDataPairs()}
+                        onChange={handleFormDataPairsChange}
+                        sectionTitle={t('request.formData')}
+                    />
                 )}
             </div>
         </div>

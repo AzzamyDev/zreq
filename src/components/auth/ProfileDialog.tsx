@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/authStore'
 import { apiClient } from '../../lib/api-client'
@@ -12,20 +12,32 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Button } from '../ui/button'
-import { AlertTriangle, Trash2 } from 'lucide-react'
+import { AlertTriangle, Shield, Trash2, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { SidebarDialog } from '../ui/sidebar-dialog'
 
 interface ProfileDialogProps {
     open: boolean
     onClose: () => void
 }
 
-const sectionClass =
-    'rounded-xl border border-border/80 bg-muted/25 p-4 shadow-sm dark:bg-muted/15'
+type Section = 'account' | 'security' | 'danger'
+
+function userInitials(name: string, email: string) {
+    const fromName = name
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() ?? '')
+        .join('')
+    if (fromName) return fromName
+    return email.slice(0, 2).toUpperCase()
+}
 
 export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
     const { t } = useTranslation()
     const { user, setAuth, token, logout } = useAuthStore()
+    const [section, setSection] = useState<Section>('account')
     const [name, setName] = useState(user?.name ?? '')
     const [currentPw, setCurrentPw] = useState('')
     const [newPw, setNewPw] = useState('')
@@ -40,9 +52,15 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
     const [deleteError, setDeleteError] = useState('')
     const [deleteLoading, setDeleteLoading] = useState(false)
 
+    const initials = useMemo(
+        () => userInitials(user?.name ?? '', user?.email ?? ''),
+        [user?.name, user?.email]
+    )
+
     useEffect(() => {
         if (open && user) {
             setName(user.name)
+            setSection('account')
             setDeletePhrase('')
             setDeleteError('')
         }
@@ -155,185 +173,250 @@ export default function ProfileDialog({ open, onClose }: ProfileDialogProps) {
         onClose()
     }
 
-    const labelClass = 'text-xs font-medium uppercase tracking-wide text-muted-foreground'
+    const NAV_ITEMS: { id: Section; label: string; icon: ReactNode; tone?: 'danger' }[] = [
+        { id: 'account', label: t('profile.navAccount'), icon: <User className="h-4 w-4" /> },
+        { id: 'security', label: t('profile.navSecurity'), icon: <Shield className="h-4 w-4" /> },
+        {
+            id: 'danger',
+            label: t('profile.navDanger'),
+            icon: <AlertTriangle className="h-4 w-4" />,
+            tone: 'danger',
+        },
+    ]
 
     return (
         <>
-            <Dialog
+            <SidebarDialog
                 open={open}
-                onOpenChange={(isOpen) => {
-                    if (!isOpen) handleClose()
-                }}
-            >
-                <DialogContent
-                    showCloseButton={false}
-                    className="gap-0 sm:max-w-3xl"
-                >
-                    <DialogHeader className="pb-2">
-                        <DialogTitle className="text-lg">{t('profile.title')}</DialogTitle>
-                        <p className="text-sm text-muted-foreground">
-                            {t('profile.subtitle')}
-                        </p>
-                    </DialogHeader>
-
-                    <div className="grid grid-cols-1 gap-3 pb-1 md:grid-cols-2 md:items-start">
-                        <section className={sectionClass} aria-labelledby="profile-account-heading">
-                            <h3 id="profile-account-heading" className={cn(labelClass, 'mb-3')}>
-                                {t('profile.accountInfo')}
-                            </h3>
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-col gap-1.5">
-                                    <label htmlFor="profile-name" className="text-sm font-medium">
-                                        {t('profile.displayName')}
-                                    </label>
-                                    <Input
-                                        id="profile-name"
-                                        placeholder={t('profile.displayNamePlaceholder')}
-                                        value={name}
-                                        onChange={(e) => setName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') handleSaveName()
-                                        }}
-                                    />
-                                    {nameError && (
-                                        <p className="text-xs text-destructive">{nameError}</p>
-                                    )}
-                                    {nameSuccess && (
-                                        <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                                            {t('profile.nameSaved')}
-                                        </p>
-                                    )}
-                                    <Button
-                                        size="sm"
-                                        className="mt-1 w-full sm:w-auto"
-                                        onClick={handleSaveName}
-                                        disabled={!name.trim()}
-                                    >
-                                        {t('profile.saveName')}
-                                    </Button>
-                                </div>
-
-                                <div className="flex flex-col gap-1.5">
-                                    <label htmlFor="profile-email" className="text-sm font-medium">
-                                        {t('common.email')}
-                                    </label>
-                                    <Input
-                                        id="profile-email"
-                                        type="email"
-                                        value={user?.email ?? ''}
-                                        disabled
-                                        readOnly
-                                        className="opacity-80"
-                                        aria-describedby="profile-email-hint"
-                                    />
-                                    <p
-                                        id="profile-email-hint"
-                                        className="text-xs text-muted-foreground"
-                                    >
-                                        {t('profile.emailHint')}
-                                    </p>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section className={sectionClass} aria-labelledby="profile-password-heading">
-                            <h3 id="profile-password-heading" className={cn(labelClass, 'mb-3')}>
-                                {t('profile.security')}
-                            </h3>
-                            <div className="flex flex-col gap-2">
-                                <p className="text-sm font-medium">
-                                    {needsCurrentPassword
-                                        ? t('profile.changePasswordTitle')
-                                        : t('profile.setPasswordTitle')}
-                                </p>
-                                {!needsCurrentPassword && user?.hasPassword === false && (
-                                    <p className="text-xs text-muted-foreground">
-                                        {t('profile.setPasswordHint')}
-                                    </p>
-                                )}
-                                {needsCurrentPassword && (
-                                    <Input
-                                        type="password"
-                                        placeholder={t('profile.currentPasswordPlaceholder')}
-                                        value={currentPw}
-                                        onChange={(e) => setCurrentPw(e.target.value)}
-                                    />
-                                )}
-                                <Input
-                                    type="password"
-                                    placeholder={t('profile.newPasswordPlaceholder')}
-                                    value={newPw}
-                                    onChange={(e) => setNewPw(e.target.value)}
-                                />
-                                <Input
-                                    type="password"
-                                    placeholder={t('profile.confirmPasswordPlaceholder')}
-                                    value={confirmPw}
-                                    onChange={(e) => setConfirmPw(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleChangePassword()
-                                    }}
-                                />
-                                {pwError && (
-                                    <p className="text-xs text-destructive">{pwError}</p>
-                                )}
-                                {pwSuccess && (
-                                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                                        {t('profile.passwordChanged')}
-                                    </p>
-                                )}
-                                <Button
-                                    size="sm"
-                                    className="mt-1 w-full sm:w-auto"
-                                    onClick={handleChangePassword}
-                                >
-                                    {needsCurrentPassword
-                                        ? t('profile.changePassword')
-                                        : t('profile.setPassword')}
-                                </Button>
-                            </div>
-                        </section>
-
-                        <section
-                            className={cn(
-                                sectionClass,
-                                'border-destructive/25 bg-destructive/6 dark:bg-destructive/10 md:col-span-2'
-                            )}
-                            aria-labelledby="profile-danger-heading"
-                        >
-                            <h3
-                                id="profile-danger-heading"
-                                className="mb-2 flex items-center gap-2 text-sm font-semibold text-destructive"
+                onClose={handleClose}
+                navLabel={t('profile.title')}
+                navItems={NAV_ITEMS}
+                activeSection={section}
+                onSectionChange={setSection}
+                sidebarHeader={
+                    <div className="border-b border-border/70 px-4 py-5">
+                        <div className="flex items-center gap-3">
+                            <div
+                                className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent/25 text-sm font-semibold text-accent-foreground ring-2 ring-accent/30"
+                                aria-hidden
                             >
-                                <AlertTriangle className="size-4 shrink-0" aria-hidden />
-                                {t('profile.dangerZone')}
-                            </h3>
-                            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-                                {t('profile.deleteAccountWarning')}
-                            </p>
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                className="w-full border border-destructive/40 bg-destructive text-destructive-foreground hover:bg-destructive/90 sm:w-auto"
-                                onClick={() => {
-                                    setDeletePhrase('')
-                                    setDeleteError('')
-                                    setDeleteOpen(true)
-                                }}
-                            >
-                                <Trash2 className="size-3.5" />
-                                {t('profile.deleteAccount')}
-                            </Button>
-                        </section>
+                                {initials}
+                            </div>
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold">{user?.name}</p>
+                                <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+                            </div>
+                        </div>
                     </div>
+                }
+            >
+                            {section === 'account' && (
+                                <div className="space-y-8 animate-in fade-in slide-in-from-right-2 duration-200">
+                                    <header className="space-y-1 pr-8">
+                                        <h2 className="text-xl font-semibold">{t('profile.accountTitle')}</h2>
+                                        <p className="text-sm leading-relaxed text-muted-foreground">
+                                            {t('profile.accountSectionDesc')}
+                                        </p>
+                                    </header>
 
-                    <DialogFooter>
-                        <Button variant="outline" onClick={handleClose}>
-                            {t('profile.close')}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                                    <div className="space-y-6">
+                                        <div className="flex flex-col gap-3 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
+                                            <div className="flex-1 space-y-1.5">
+                                                <label htmlFor="profile-name" className="text-sm font-medium">
+                                                    {t('profile.displayName')}
+                                                </label>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {t('profile.displayNameHint')}
+                                                </p>
+                                                <Input
+                                                    id="profile-name"
+                                                    placeholder={t('profile.displayNamePlaceholder')}
+                                                    value={name}
+                                                    onChange={(e) => setName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleSaveName()
+                                                    }}
+                                                    className="max-w-md"
+                                                />
+                                                {nameError && (
+                                                    <p className="text-xs text-destructive">{nameError}</p>
+                                                )}
+                                                {nameSuccess && (
+                                                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                        {t('profile.nameSaved')}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                className="shrink-0"
+                                                onClick={handleSaveName}
+                                                disabled={!name.trim()}
+                                            >
+                                                {t('profile.saveName')}
+                                            </Button>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                            <label htmlFor="profile-email" className="text-sm font-medium">
+                                                {t('common.email')}
+                                            </label>
+                                            <p className="text-xs text-muted-foreground">{t('profile.emailHint')}</p>
+                                            <Input
+                                                id="profile-email"
+                                                type="email"
+                                                value={user?.email ?? ''}
+                                                disabled
+                                                readOnly
+                                                className="max-w-md opacity-80"
+                                                aria-describedby="profile-email-hint"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {section === 'security' && (
+                                <div className="space-y-8 animate-in fade-in slide-in-from-right-2 duration-200">
+                                    <header className="space-y-1 pr-8">
+                                        <h2 className="text-xl font-semibold">{t('profile.securityTitle')}</h2>
+                                        <p className="text-sm leading-relaxed text-muted-foreground">
+                                            {needsCurrentPassword
+                                                ? t('profile.securitySectionDesc')
+                                                : t('profile.setPasswordHint')}
+                                        </p>
+                                    </header>
+
+                                    <div className="space-y-6">
+                                        <div className="flex items-start justify-between gap-4 border-b border-border pb-6">
+                                            <div>
+                                                <p className="text-sm font-medium">{t('profile.loginMethodLabel')}</p>
+                                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                                    {needsCurrentPassword
+                                                        ? t('profile.loginMethodPassword')
+                                                        : t('profile.loginMethodOAuth')}
+                                                </p>
+                                            </div>
+                                            <span
+                                                className={cn(
+                                                    'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                                                    needsCurrentPassword
+                                                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                                        : 'bg-muted text-muted-foreground'
+                                                )}
+                                            >
+                                                {needsCurrentPassword
+                                                    ? t('profile.passwordEnabled')
+                                                    : t('profile.passwordNotSet')}
+                                            </span>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div>
+                                                <p className="text-sm font-medium">
+                                                    {needsCurrentPassword
+                                                        ? t('profile.changePasswordTitle')
+                                                        : t('profile.setPasswordTitle')}
+                                                </p>
+                                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                                    {t('profile.passwordRequirements')}
+                                                </p>
+                                            </div>
+
+                                            <div className="max-w-md space-y-2.5">
+                                                {needsCurrentPassword && (
+                                                    <Input
+                                                        type="password"
+                                                        placeholder={t('profile.currentPasswordPlaceholder')}
+                                                        value={currentPw}
+                                                        onChange={(e) => setCurrentPw(e.target.value)}
+                                                    />
+                                                )}
+                                                <Input
+                                                    type="password"
+                                                    placeholder={t('profile.newPasswordPlaceholder')}
+                                                    value={newPw}
+                                                    onChange={(e) => setNewPw(e.target.value)}
+                                                />
+                                                <Input
+                                                    type="password"
+                                                    placeholder={t('profile.confirmPasswordPlaceholder')}
+                                                    value={confirmPw}
+                                                    onChange={(e) => setConfirmPw(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleChangePassword()
+                                                    }}
+                                                />
+                                            </div>
+
+                                            {pwError && (
+                                                <p className="text-xs text-destructive">{pwError}</p>
+                                            )}
+                                            {pwSuccess && (
+                                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                    {t('profile.passwordChanged')}
+                                                </p>
+                                            )}
+
+                                            <Button size="sm" onClick={handleChangePassword}>
+                                                {needsCurrentPassword
+                                                    ? t('profile.changePassword')
+                                                    : t('profile.setPassword')}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {section === 'danger' && (
+                                <div className="space-y-8 animate-in fade-in slide-in-from-right-2 duration-200">
+                                    <header className="space-y-1 pr-8">
+                                        <h2 className="text-xl font-semibold text-destructive">
+                                            {t('profile.dangerTitle')}
+                                        </h2>
+                                        <p className="text-sm leading-relaxed text-muted-foreground">
+                                            {t('profile.dangerSectionDesc')}
+                                        </p>
+                                    </header>
+
+                                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 dark:bg-destructive/10">
+                                        <div className="flex gap-4">
+                                            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-destructive/15">
+                                                <Trash2 className="size-5 text-destructive" aria-hidden />
+                                            </div>
+                                            <div className="min-w-0 flex-1 space-y-3">
+                                                <div>
+                                                    <p className="font-medium text-destructive">
+                                                        {t('profile.deleteAccount')}
+                                                    </p>
+                                                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                                                        {t('profile.deleteAccountWarning')}
+                                                    </p>
+                                                </div>
+                                                <ul className="space-y-1 text-xs text-muted-foreground">
+                                                    <li>• {t('profile.deleteItemWorkspace')}</li>
+                                                    <li>• {t('profile.deleteItemCollections')}</li>
+                                                    <li>• {t('profile.deleteItemEnvironments')}</li>
+                                                </ul>
+                                                <Button
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="border border-destructive/40"
+                                                    onClick={() => {
+                                                        setDeletePhrase('')
+                                                        setDeleteError('')
+                                                        setDeleteOpen(true)
+                                                    }}
+                                                >
+                                                    <Trash2 className="size-3.5" />
+                                                    {t('profile.deleteAccount')}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+            </SidebarDialog>
 
             <Dialog
                 open={deleteOpen}

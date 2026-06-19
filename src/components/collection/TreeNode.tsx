@@ -9,6 +9,7 @@ import {
     GripVertical,
     Plus,
     MoreHorizontal,
+    Radio,
 } from 'lucide-react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -24,11 +25,15 @@ import { Dialog, DialogContent, DialogFooter, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { useCollection, type TreeDropPayload } from '../../hooks/useCollection'
 import { useAppStore } from '../../store'
+import { useCollectionFlatVisibleIds } from './CollectionSelectionContext'
 import RenameDialog from './RenameDialog'
 import NewFolderDialog from './NewFolderDialog'
 import FolderSettingsDialog from './FolderSettingsDialog'
 import type { RequestItem, Folder as FolderType } from '../../types'
-import { METHOD_BG_CLASS, METHOD_TEXT_CLASS } from '../../lib/httpMethodTheme'
+import { METHOD_BG_CLASS, METHOD_TEXT_CLASS, requestBadgeLabel } from '../../lib/httpMethodTheme'
+import { inferProtocolFromUrl } from '../../lib/persist-request'
+import { isRangeSelectModifier, isToggleSelectModifier } from '../../lib/modifier-keys'
+import { SIDEBAR_DROP_ACTIVE, SIDEBAR_DROP_ACTIVE_ROW } from '../../lib/sidebar-drop-zone'
 import {
     SIDEBAR_MORE_MENU_ITEM,
     SIDEBAR_MORE_MENU_OUTER,
@@ -41,6 +46,7 @@ interface TreeNodeProps {
     parentFolderId?: string
     depth?: number
     onAddRequest?: (parentFolderId?: string) => void
+    onAddWebSocketRequest?: (parentFolderId?: string) => void
     ancestorNames?: string[]
 }
 
@@ -72,25 +78,129 @@ function MenuButton({
     )
 }
 
+function TreeRowCheckbox({
+    checked,
+    visible,
+    onToggle,
+}: {
+    checked: boolean
+    visible: boolean
+    onToggle: (e: React.MouseEvent) => void
+}) {
+    return (
+        <button
+            type="button"
+            role="checkbox"
+            aria-checked={checked}
+            onClick={onToggle}
+            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-all ${
+                checked
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-foreground/40 bg-transparent hover:border-primary/60'
+            } ${visible || checked ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'}`}
+        >
+            {checked ? (
+                <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden>
+                    <path
+                        d="M2.5 6.2 4.8 8.5 9.5 3.8"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                </svg>
+            ) : null}
+        </button>
+    )
+}
+
+function useTreeRowSelection(collectionId: number, itemId: string) {
+    const flatVisibleIds = useCollectionFlatVisibleIds()
+    const sidebarSelection = useAppStore((s) => s.sidebarSelection)
+    const selectSidebarItem = useAppStore((s) => s.selectSidebarItem)
+    const clearSidebarSelection = useAppStore((s) => s.clearSidebarSelection)
+    const setSidebarSelectAnchor = useAppStore((s) => s.setSidebarSelectAnchor)
+
+    const isMultiSelected =
+        sidebarSelection?.collectionId === collectionId && sidebarSelection.ids.includes(itemId)
+    const selectionActive =
+        sidebarSelection?.collectionId === collectionId && (sidebarSelection?.ids.length ?? 0) > 0
+    const multiDragCount =
+        isMultiSelected && sidebarSelection ? sidebarSelection.ids.length : 0
+
+    const handleSelectionPointer = (e: React.MouseEvent) => {
+        if (isRangeSelectModifier(e)) {
+            e.stopPropagation()
+            e.preventDefault()
+            selectSidebarItem(collectionId, itemId, 'range', flatVisibleIds)
+            return true
+        }
+        if (isToggleSelectModifier(e)) {
+            e.stopPropagation()
+            e.preventDefault()
+            selectSidebarItem(collectionId, itemId, 'toggle')
+            return true
+        }
+        return false
+    }
+
+    const toggleCheckbox = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        e.preventDefault()
+        selectSidebarItem(collectionId, itemId, 'toggle')
+    }
+
+    const notePrimaryClick = () => {
+        setSidebarSelectAnchor(collectionId, itemId)
+        if (selectionActive) clearSidebarSelection()
+    }
+
+    return {
+        isMultiSelected,
+        selectionActive,
+        multiDragCount,
+        handleSelectionPointer,
+        toggleCheckbox,
+        notePrimaryClick,
+    }
+}
+
 function FolderTreeNode({
     item: folder,
     collectionId,
     parentFolderId,
     depth = 0,
     onAddRequest,
+    onAddWebSocketRequest,
     ancestorNames = [],
 }: Omit<TreeNodeProps, 'item'> & { item: FolderType }) {
     const { t } = useTranslation()
     const [renameOpen, setRenameOpen] = useState(false)
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+    const [addMenuOpen, setAddMenuOpen] = useState(false)
     const [folderDialogOpen, setFolderDialogOpen] = useState(false)
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
-    const { deleteItem, renameItem, addFolder, addRequest, updateFolderSettings } = useCollection()
+    const addMenuRef = useRef<HTMLDivElement>(null)
+    const { deleteItem, renameItem, addFolder, addRequest, addWebSocketRequest, updateFolderSettings } = useCollection()
+    const {
+        isMultiSelected,
+        selectionActive,
+        multiDragCount,
+        handleSelectionPointer,
+        toggleCheckbox,
+        notePrimaryClick,
+    } = useTreeRowSelection(collectionId, folder.id)
 
     const fldKey = `fld:${collectionId}:${folder.id}`
-    const expanded = useAppStore((s) => s.sidebarExpanded[fldKey] ?? false)
+    const expandRevision = useAppStore((s) => s.sidebarExpandRevision)
+    const expanded = useAppStore((s) => {
+        void expandRevision
+        return s.sidebarExpanded[fldKey] === true
+    })
+    const toggleSidebarFolderExpanded = useAppStore((s) => s.toggleSidebarFolderExpanded)
 
     const {
         attributes,
@@ -133,6 +243,17 @@ function FolderTreeNode({
         return () => document.removeEventListener('mousedown', handler)
     }, [moreMenuOpen])
 
+    useEffect(() => {
+        if (!addMenuOpen) return
+        const handler = (e: MouseEvent) => {
+            if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+                setAddMenuOpen(false)
+            }
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [addMenuOpen])
+
     const handleRename = async (newName: string) => {
         await renameItem(collectionId, folder.id, newName)
     }
@@ -148,11 +269,20 @@ function FolderTreeNode({
 
     const handleAddRequestToFolder = async () => {
         setMoreMenuOpen(false)
+        setAddMenuOpen(false)
         await addRequest(collectionId, t('collection.newRequest'), folder.id)
     }
 
-    const toggleFolder = () => {
-        useAppStore.getState().toggleSidebarFolderExpanded(collectionId, folder.id)
+    const handleAddWebSocketToFolder = async () => {
+        setMoreMenuOpen(false)
+        setAddMenuOpen(false)
+        await addWebSocketRequest(collectionId, t('collection.newWebSocketRequest'), folder.id)
+    }
+
+    const toggleFolder = (e: React.MouseEvent) => {
+        if (handleSelectionPointer(e)) return
+        notePrimaryClick()
+        toggleSidebarFolderExpanded(collectionId, folder.id)
     }
 
     return (
@@ -162,15 +292,19 @@ function FolderTreeNode({
                     <div
                         ref={setNodeRef}
                         {...attributes}
-                        className={`group relative mx-1 flex select-none items-center gap-1 rounded-sm px-2 py-1 text-sm hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen ? 'z-100 isolate' : isDragging ? 'z-10' : 'z-0'
-                            } ${isOver && !isIntoOver ? 'bg-primary/10' : ''}`}
+                        onClick={toggleFolder}
+                        className={`group relative mx-1 flex select-none items-center gap-1 rounded-sm px-2 py-1 text-sm cursor-pointer hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen || addMenuOpen ? 'z-100 isolate' : isDragging ? 'z-10' : 'z-0'
+                            } ${isMultiSelected && !isIntoOver && !isOver ? 'bg-[var(--sidebar-row-selected)] ring-1 ring-primary/25' : ''} ${isIntoOver ? SIDEBAR_DROP_ACTIVE : isOver ? SIDEBAR_DROP_ACTIVE_ROW : ''}`}
                         style={rowStyle}
                     >
+                        <TreeRowCheckbox
+                            checked={isMultiSelected}
+                            visible={selectionActive}
+                            onToggle={toggleCheckbox}
+                        />
                         <div
                             ref={setIntoRef}
-                            className={`flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-sm py-0.5 ${isIntoOver ? 'bg-primary/20' : ''
-                                }`}
-                            onClick={toggleFolder}
+                            className="flex min-w-0 flex-1 items-center gap-1 rounded-sm py-0.5"
                         >
                             {expanded ? (
                                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -186,22 +320,46 @@ function FolderTreeNode({
                         </div>
 
                         <div
-                            className={`flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 ${moreMenuOpen || isDragging ? 'opacity-100' : ''}`}
+                            className={`flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 ${moreMenuOpen || addMenuOpen || isDragging ? 'pointer-events-auto opacity-100' : ''}`}
                         >
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleAddRequestToFolder()
-                                }}
-                                className="cursor-pointer rounded p-0.5 hover:bg-[var(--sidebar-row-hover)]"
-                                title={t('collection.addRequest')}
-                            >
-                                <Plus className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="relative" ref={addMenuRef}>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setMoreMenuOpen(false)
+                                        setAddMenuOpen((v) => !v)
+                                    }}
+                                    className="cursor-pointer rounded p-0.5 hover:bg-[var(--sidebar-row-hover)]"
+                                    title={t('collection.addRequest')}
+                                >
+                                    <Plus className="h-3.5 w-3.5" />
+                                </button>
+                                {addMenuOpen && (
+                                    <InlineMenu>
+                                        <MenuButton
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                void handleAddRequestToFolder()
+                                            }}
+                                        >
+                                            {t('collection.addRequest')}
+                                        </MenuButton>
+                                        <MenuButton
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                void handleAddWebSocketToFolder()
+                                            }}
+                                        >
+                                            {t('collection.addWebSocketRequest')}
+                                        </MenuButton>
+                                    </InlineMenu>
+                                )}
+                            </div>
                             <div className="relative" ref={moreMenuRef}>
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        setAddMenuOpen(false)
                                         setMoreMenuOpen((v) => !v)
                                     }}
                                     className="cursor-pointer rounded p-0.5 hover:bg-[var(--sidebar-row-hover)]"
@@ -218,6 +376,14 @@ function FolderTreeNode({
                                             }}
                                         >
                                             {t('collection.addRequest')}
+                                        </MenuButton>
+                                        <MenuButton
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                void handleAddWebSocketToFolder()
+                                            }}
+                                        >
+                                            {t('collection.addWebSocketRequest')}
                                         </MenuButton>
                                         <MenuButton
                                             onClick={(e) => {
@@ -263,17 +429,27 @@ function FolderTreeNode({
                                 type="button"
                                 ref={setActivatorNodeRef}
                                 {...listeners}
-                                className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-[var(--sidebar-row-hover)] active:cursor-grabbing"
-                                title={t('collection.dragToMove')}
+                                className="relative shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-[var(--sidebar-row-hover)] active:cursor-grabbing"
+                                title={
+                                    multiDragCount > 1
+                                        ? t('collection.dragToMoveMultiple', { count: multiDragCount })
+                                        : t('collection.dragToMove')
+                                }
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <GripVertical className="h-3.5 w-3.5" />
+                                {multiDragCount > 1 && isDragging ? (
+                                    <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground">
+                                        {multiDragCount}
+                                    </span>
+                                ) : null}
                             </button>
                         </div>
                     </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
                     <ContextMenuItem onClick={() => onAddRequest?.(folder.id)}>{t('collection.addRequest')}</ContextMenuItem>
+                    <ContextMenuItem onClick={() => onAddWebSocketRequest?.(folder.id)}>{t('collection.addWebSocketRequest')}</ContextMenuItem>
                     <ContextMenuItem onClick={handleAddSubFolder}>{t('collection.addFolder')}</ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem onClick={() => setRenameOpen(true)}>{t('common.rename')}</ContextMenuItem>
@@ -298,6 +474,7 @@ function FolderTreeNode({
                             parentFolderId={folder.id}
                             depth={depth + 1}
                             onAddRequest={onAddRequest}
+                            onAddWebSocketRequest={onAddWebSocketRequest}
                             ancestorNames={folderAncestors}
                         />
                     ))}
@@ -365,6 +542,14 @@ function RequestTreeNode({
     const moreMenuRef = useRef<HTMLDivElement>(null)
     const { deleteItem, renameItem, duplicateItem } = useCollection()
     const { loadRequestItem, selectedItemId } = useAppStore()
+    const {
+        isMultiSelected,
+        selectionActive,
+        multiDragCount,
+        handleSelectionPointer,
+        toggleCheckbox,
+        notePrimaryClick,
+    } = useTreeRowSelection(collectionId, reqItem.id)
 
     const {
         attributes,
@@ -379,8 +564,10 @@ function RequestTreeNode({
 
     const indent = depth * 12
     const isSelected = selectedItemId === reqItem.id
-    const methodColor = METHOD_TEXT_CLASS[reqItem.method] ?? 'text-foreground'
-    const methodBg = METHOD_BG_CLASS[reqItem.method] ?? 'bg-[var(--sidebar-row-hover)]'
+    const isWs = inferProtocolFromUrl(reqItem.url ?? '', reqItem.protocol) === 'ws'
+    const badge = requestBadgeLabel(reqItem)
+    const methodColor = METHOD_TEXT_CLASS[badge] ?? 'text-foreground'
+    const methodBg = METHOD_BG_CLASS[badge] ?? 'bg-[var(--sidebar-row-hover)]'
     const rowStyle: CSSProperties = {
         transform: transform ? CSS.Transform.toString(transform) : undefined,
         transition,
@@ -407,7 +594,9 @@ function RequestTreeNode({
         await deleteItem(collectionId, reqItem.id)
     }
 
-    const handleLoadRequest = () => {
+    const handleRowClick = (e: React.MouseEvent) => {
+        if (handleSelectionPointer(e)) return
+        notePrimaryClick()
         const fullPath = [...ancestorNames, reqItem.name]
         loadRequestItem(reqItem, fullPath, { collectionId, folderId: parentFolderId })
         useAppStore.getState().setBreadcrumb(fullPath)
@@ -420,19 +609,26 @@ function RequestTreeNode({
                     <div
                         ref={setNodeRef}
                         {...attributes}
-                        className={`group relative mx-1 flex select-none items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-[var(--sidebar-row-hover)] ${isSelected ? 'bg-[var(--sidebar-row-selected)]' : ''
-                            } ${moreMenuOpen ? 'z-100 isolate' : isDragging ? 'z-10' : 'z-0'} ${isOver ? 'bg-primary/10' : ''}`}
+                        onClick={handleRowClick}
+                        className={`group relative mx-1 flex select-none items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen ? 'z-100 isolate' : isDragging ? 'z-10' : 'z-0'
+                            } ${(isSelected || isMultiSelected) && !isOver ? 'bg-[var(--sidebar-row-selected)]' : ''} ${isMultiSelected && !isOver ? 'ring-1 ring-primary/25' : ''} ${isOver ? SIDEBAR_DROP_ACTIVE_ROW : ''}`}
                         style={rowStyle}
                     >
-                        <div
-                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5"
-                            onClick={handleLoadRequest}
-                        >
-                            <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <TreeRowCheckbox
+                            checked={isMultiSelected}
+                            visible={selectionActive}
+                            onToggle={toggleCheckbox}
+                        />
+                        <div className="flex min-w-0 flex-1 items-center gap-1.5 pointer-events-none">
+                            {isWs ? (
+                                <Radio className="h-3.5 w-3.5 shrink-0 text-[var(--dracula-cyan)]" />
+                            ) : (
+                                <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            )}
                             <span
                                 className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold leading-none ${methodColor} ${methodBg}`}
                             >
-                                {reqItem.method}
+                                {badge}
                             </span>
                             <span className="flex-1 truncate">{reqItem.name}</span>
                         </div>
@@ -488,11 +684,20 @@ function RequestTreeNode({
                                 type="button"
                                 ref={setActivatorNodeRef}
                                 {...listeners}
-                                className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-[var(--sidebar-row-hover)] active:cursor-grabbing"
-                                title={t('collection.dragToMove')}
+                                className="relative shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-[var(--sidebar-row-hover)] active:cursor-grabbing"
+                                title={
+                                    multiDragCount > 1
+                                        ? t('collection.dragToMoveMultiple', { count: multiDragCount })
+                                        : t('collection.dragToMove')
+                                }
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <GripVertical className="h-3.5 w-3.5" />
+                                {multiDragCount > 1 && isDragging ? (
+                                    <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground">
+                                        {multiDragCount}
+                                    </span>
+                                ) : null}
                             </button>
                         </div>
                     </div>

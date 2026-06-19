@@ -15,6 +15,7 @@ import { preventDrawerDismissForPortaledLayer, preventDrawerFocusDismiss } from 
 import AuthEditor from '../request/AuthEditor'
 import KVEditor from '../request/KVEditor'
 import type { Collection, AuthConfig, EnvVariable, KV } from '../../types'
+import { useAppStore } from '../../store'
 import { nanoid } from 'nanoid'
 
 interface CollectionSettingsDialogProps {
@@ -37,6 +38,7 @@ function kvToEnv(pairs: KV[]): EnvVariable[] {
 export default function CollectionSettingsDialog({ open, onClose, collection, onSave }: CollectionSettingsDialogProps) {
     const { t } = useTranslation()
     const selectPortalRef = useRef<HTMLDivElement>(null)
+    const wasOpenRef = useRef(false)
     const [section, setSection] = useState<SettingsSection>('general')
     const [name, setName] = useState(collection.name)
     const [description, setDescription] = useState(collection.description ?? '')
@@ -44,15 +46,21 @@ export default function CollectionSettingsDialog({ open, onClose, collection, on
     const [variables, setVariables] = useState<KV[]>(envToKV(collection.variables ?? []))
     const [saving, setSaving] = useState(false)
 
+    // Hydrate form only when dialog opens — not on every store sync while editing.
     useEffect(() => {
-        if (open) {
-            setSection('general')
-            setName(collection.name)
-            setDescription(collection.description ?? '')
-            setAuth(collection.auth ?? { type: 'none' })
-            setVariables(envToKV(collection.variables ?? []))
-        }
-    }, [open, collection])
+        const justOpened = open && !wasOpenRef.current
+        wasOpenRef.current = open
+        if (!open || !justOpened) return
+
+        const col = useAppStore.getState().collections.find((c) => c.id === collection.id)
+        if (!col) return
+
+        setSection('general')
+        setName(col.name)
+        setDescription(col.description ?? '')
+        setAuth(col.auth ?? { type: 'none' })
+        setVariables(envToKV(col.variables ?? []))
+    }, [open, collection.id])
 
     const handleSave = async () => {
         setSaving(true)
@@ -113,7 +121,7 @@ export default function CollectionSettingsDialog({ open, onClose, collection, on
                     </DrawerClose>
                 </div>
 
-                <div ref={selectPortalRef} className="relative flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 flex-1">
                     <nav
                         className="flex w-40 shrink-0 flex-col gap-0.5 border-r border-border p-2"
                         aria-label={t('collectionSettings.title')}
@@ -185,6 +193,11 @@ export default function CollectionSettingsDialog({ open, onClose, collection, on
                             )}
                         </div>
                     </ScrollArea>
+                    {/* Portaled selects mount here so they do not become flex siblings of nav/content. */}
+                    <div
+                        ref={selectPortalRef}
+                        className="pointer-events-none absolute inset-0 z-60 **:data-[slot=select-content]:pointer-events-auto"
+                    />
                 </div>
 
                 <DrawerFooter className="flex flex-row justify-end gap-2 border-t bg-muted/30">

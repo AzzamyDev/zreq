@@ -1,8 +1,16 @@
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
+import {
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
+import { collectionTreeCollisionDetection } from '../../lib/collection-tree-collision'
 import { useAppStore } from '../../store'
 import { useCollection } from '../../hooks/useCollection'
+import { useCollectionTreeDragEnd } from '../../hooks/useCollectionTreeDragEnd'
 import CollectionItem from './CollectionItem'
 import NewCollectionDialog from './NewCollectionDialog'
 import { useState } from 'react'
@@ -22,6 +30,8 @@ export default function CollectionTree({
     const { t } = useTranslation()
     const { collections, activeWorkspaceId } = useAppStore()
     const { createCollection } = useCollection()
+    const onDragEnd = useCollectionTreeDragEnd()
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
     const [showNewDialog, setShowNewDialog] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -97,7 +107,13 @@ export default function CollectionTree({
                     </button>
                 </div>
             ) : (
-                collections.map((col) => <CollectionItem key={col.id} collection={col} />)
+                <DndContext sensors={sensors} collisionDetection={collectionTreeCollisionDetection} onDragEnd={onDragEnd}>
+                    {collections.map((col) => (
+                        <div key={col.id} className="mb-1">
+                            <CollectionItem collection={col} />
+                        </div>
+                    ))}
+                </DndContext>
             )}
 
             <input

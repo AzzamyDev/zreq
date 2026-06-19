@@ -7,7 +7,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import AuthEditor from '../request/AuthEditor'
 import KVEditor from '../request/KVEditor'
-import type { Folder, AuthConfig, EnvVariable, KV } from '../../types'
+import type { Folder, RequestItem, AuthConfig, EnvVariable, KV } from '../../types'
+import { useAppStore } from '../../store'
 import { nanoid } from 'nanoid'
 
 interface FolderSettingsDialogProps {
@@ -33,6 +34,17 @@ function kvToEnv(pairs: KV[]): EnvVariable[] {
     return pairs.map((p) => ({ key: p.key, value: p.value, enabled: p.enabled }))
 }
 
+function findItem(items: (Folder | RequestItem)[], id: string): Folder | RequestItem | null {
+    for (const item of items) {
+        if (item.id === id) return item
+        if (item.type === 'folder' && item.items) {
+            const found = findItem(item.items, id)
+            if (found) return found
+        }
+    }
+    return null
+}
+
 export default function FolderSettingsDialog({
     open,
     onClose,
@@ -41,7 +53,7 @@ export default function FolderSettingsDialog({
     onSave,
 }: FolderSettingsDialogProps) {
     const { t } = useTranslation()
-    const selectPortalRef = useRef<HTMLDivElement>(null)
+    const wasOpenRef = useRef(false)
     const [section, setSection] = useState<SettingsSection>('general')
     const [name, setName] = useState(folder.name)
     const [description, setDescription] = useState(folder.description ?? '')
@@ -49,15 +61,24 @@ export default function FolderSettingsDialog({
     const [variables, setVariables] = useState<KV[]>(envToKV(folder.variables ?? []))
     const [saving, setSaving] = useState(false)
 
+    // Hydrate form only when dialog opens — not on every store sync while editing.
     useEffect(() => {
-        if (open) {
-            setSection('general')
-            setName(folder.name)
-            setDescription(folder.description ?? '')
-            setAuth(folder.auth ?? { type: 'inherit' })
-            setVariables(envToKV(folder.variables ?? []))
-        }
-    }, [open, folder])
+        const justOpened = open && !wasOpenRef.current
+        wasOpenRef.current = open
+        if (!open || !justOpened) return
+
+        const col = useAppStore.getState().collections.find((c) => c.id === collectionId)
+        if (!col) return
+
+        const node = findItem(col.items, folder.id)
+        if (!node || node.type !== 'folder') return
+
+        setSection('general')
+        setName(node.name)
+        setDescription(node.description ?? '')
+        setAuth(node.auth ?? { type: 'inherit' })
+        setVariables(envToKV(node.variables ?? []))
+    }, [open, collectionId, folder.id])
 
     const handleSave = async () => {
         setSaving(true)
@@ -114,7 +135,7 @@ export default function FolderSettingsDialog({
                     </Button>
                 </div>
 
-                <div ref={selectPortalRef} className="relative flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 flex-1">
                     <nav
                         className="flex w-40 shrink-0 flex-col gap-0.5 border-r border-border p-2"
                         aria-label={t('folderSettings.title')}
@@ -155,7 +176,6 @@ export default function FolderSettingsDialog({
                                     <AuthEditor
                                         auth={auth}
                                         onChange={setAuth}
-                                        selectPortalContainer={selectPortalRef}
                                         variableSuggestionScope={{
                                             collectionId,
                                             folderId: folder.id,

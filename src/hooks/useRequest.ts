@@ -35,7 +35,6 @@ export function useRequest() {
 
     const sendRequest = async () => {
         setLoading(true)
-        setResponse(null)
         try {
             const vars = getActiveEnvVars()
             const resolved = resolveRequest(activeRequest, vars)

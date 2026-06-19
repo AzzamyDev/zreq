@@ -1,8 +1,5 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { apiClient } from '@/lib/api-client'
 import { useAuthStore } from '@/store/authStore'
 
@@ -35,32 +32,40 @@ export default function RegisterForm() {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-                <Label htmlFor="name">{t('common.name')}</Label>
-                <Input
+            <div className="space-y-2.5">
+                <label htmlFor="name" className="auth-nebula-label">
+                    {t('common.name')}
+                </label>
+                <input
                     id="name"
                     placeholder={t('auth.namePlaceholder')}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
-                    className="h-10 bg-background/60"
+                    className="auth-nebula-input"
+                    autoComplete="name"
                 />
             </div>
-            <div className="space-y-2">
-                <Label htmlFor="email">{t('common.email')}</Label>
-                <Input
+            <div className="space-y-2.5">
+                <label htmlFor="email" className="auth-nebula-label">
+                    {t('common.email')}
+                </label>
+                <input
                     id="email"
                     type="email"
                     placeholder={t('auth.emailPlaceholder')}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="h-10 bg-background/60"
+                    className="auth-nebula-input"
+                    autoComplete="email"
                 />
             </div>
-            <div className="space-y-2">
-                <Label htmlFor="password">{t('common.password')}</Label>
-                <Input
+            <div className="space-y-2.5">
+                <label htmlFor="password" className="auth-nebula-label">
+                    {t('common.password')}
+                </label>
+                <input
                     id="password"
                     type="password"
                     placeholder={t('auth.passwordMinPlaceholder')}
@@ -68,13 +73,14 @@ export default function RegisterForm() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="h-10 bg-background/60"
+                    className="auth-nebula-input"
+                    autoComplete="new-password"
                 />
             </div>
-            {error && <p className="text-destructive text-sm">{error}</p>}
-            <Button type="submit" size="lg" className="h-11 w-full" disabled={loading}>
+            {error ? <p className="text-destructive text-sm">{error}</p> : null}
+            <button type="submit" className="auth-nebula-btn-primary mt-1" disabled={loading}>
                 {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
-            </Button>
+            </button>
         </form>
     )
 }

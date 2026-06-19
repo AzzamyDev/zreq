@@ -191,6 +191,11 @@ export default function SaveRequestDialog({ open, onClose, defaultFolderId, onAf
                 params: ar.params,
                 body: ar.body,
                 auth: ar.auth,
+                protocol: ar.protocol ?? 'http',
+                subprotocols: ar.subprotocols,
+                savedMessages: ar.savedMessages,
+                messageTemplate: ar.messageTemplate,
+                scripts: ar.scripts,
             }
             const saved = await saveRequestItem(
                 Number(selectedCollectionId),

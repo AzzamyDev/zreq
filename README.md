@@ -1,6 +1,8 @@
 # ZReq
 
-**Workspace-first HTTP client** — send requests, manage collections, and sync data with your ZReq backend. A Tauri desktop app with a React UI built around day-to-day API workflows.
+**Workspace-first HTTP & WebSocket client** — send requests, manage collections, and sync data with your ZReq backend. A Tauri desktop app with a React UI built around day-to-day API workflows.
+
+📖 **Full documentation:** [docs/README.md](./docs/README.md) (overview, architecture, development, user guide — also available in Indonesian)
 
 ---
 
@@ -9,6 +11,7 @@
 ZReq helps you:
 
 - **Compose and run** HTTP requests (method, URL, headers, body) with a comfortable editor.
+- **Connect to WebSocket** servers with live message streams, subprotocols, binary/ping-pong, and saved message templates in collections.
 - **Organize** requests in **collections** per **workspace**, including **environments** for variables.
 - **Connect to your own API instance** (not a single fixed host): instance onboarding, switch servers from the toolbar.
 - **Sync** with an outbox + local replica model, conflict handling, and a manual **Sync Now** trigger.
@@ -22,13 +25,14 @@ A good fit for teams that already run a ZReq backend and want one desktop app fo
 
 | Area | Summary |
 |------|---------|
-| **Requests** | Builder + response panel, multiple request tabs, resizable panels, script-friendly env variable resolution. |
-| **Collections** | Tree of collections/folders, drag & sort, create/import (single or multiple files), Postman + ZReq compatibility. |
-| **Environments** | Environment selector, dedicated manage button, import/export, editable variables with autosave. |
-| **Workspaces** | Multiple workspaces, members (invite by email), centralized settings. |
+| **HTTP requests** | Builder + response panel, URL ↔ Params sync (Postman-style), multiple tabs, resizable panels, pre/post scripts, env variable resolution. |
+| **WebSocket** | Protocol selector (HTTP / WS), live frames via Tauri events, subprotocols, text/binary/ping-pong, saved messages in collections. |
+| **Collections** | Tree of collections/folders, HTTP/WS icons, drag & sort, Request/WebSocket picker on **+**, Postman + ZReq import/export. |
+| **Environments** | Environment selector, import (Postman, ZReq, `.env`), editable variables with autosave. |
+| **Workspaces** | Multiple workspaces, members (invite by email), multi-instance backend switching. |
 | **Auth** | Sign in / register, **GitHub OAuth** (desktop deep link `zreq://`). |
-| **Sync** | Sync status + outbox badge, conflict dialog, sync strategy options (debounced / interval / manual), toolbar **Sync** button. |
-| **Experience** | Command palette, i18n (e.g. EN/ID), dark theme and accent colors. |
+| **Sync** | Local replica + outbox, conflict dialog with line diff, debounced / periodic / manual upload strategies. |
+| **Experience** | Command palette, i18n (EN/ID), Dracula-inspired dark theme, frameless window with native controls. |
 
 ---
 
@@ -38,6 +42,9 @@ A good fit for teams that already run a ZReq backend and want one desktop app fo
 - **Desktop:** [Tauri 2](https://v2.tauri.app/)  
 - **UI:** Tailwind CSS 4, Radix / shadcn-style components, CodeMirror for JSON bodies and more.  
 - **State:** Zustand, Immer  
+- **HTTP (Rust):** `reqwest` via Tauri invoke  
+- **WebSocket (Rust):** `tokio-tungstenite` + Tauri events  
+- **Test:** Vitest  
 
 ---
 
@@ -46,8 +53,6 @@ A good fit for teams that already run a ZReq backend and want one desktop app fo
 **Prerequisites:** Node.js, `pnpm`, and [Rust](https://rustup.rs/) (for Tauri).
 
 ```bash
-cd client
-cp .env.example .env
 pnpm install
 pnpm tauri dev
 ```
@@ -63,6 +68,7 @@ Common helper commands:
 ```bash
 pnpm dev
 pnpm build
+pnpm test
 pnpm tauri build
 ```
 

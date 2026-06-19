@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../store'
-import { METHOD_TEXT_CLASS } from '../../lib/httpMethodTheme'
+import { METHOD_TEXT_CLASS, requestBadgeLabel } from '../../lib/httpMethodTheme'
 import { X, Plus } from 'lucide-react'
 import {
     ContextMenu,
@@ -127,6 +127,10 @@ export default function RequestTabBar() {
                     body: ar.body,
                     auth: ar.auth,
                     scripts: ar.scripts,
+                    protocol: ar.protocol ?? 'http',
+                    subprotocols: ar.subprotocols,
+                    savedMessages: ar.savedMessages,
+                    messageTemplate: ar.messageTemplate,
                 })
                 markActiveTabClean()
                 closeTab(tabId, true)
@@ -244,14 +248,14 @@ export default function RequestTabBar() {
                                         setActiveTab(tab.id)
                                     }
                                 }}
-                                className={`group flex min-w-[100px] max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-xs ${
+                                className={`group flex min-w-[200px] max-w-[280px] shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-xs ${
                                     tab.id === activeTabId
                                         ? 'border-b-2 border-b-primary bg-muted/40'
                                         : 'border-b-2 border-b-transparent text-muted-foreground hover:bg-muted/20'
                                 }`}
                             >
                                 <span
-                                    className={`shrink-0 text-[10px] font-bold ${METHOD_TEXT_CLASS[tab.method] ?? 'text-muted-foreground'}`}
+                                    className={`shrink-0 text-[10px] font-bold ${METHOD_TEXT_CLASS[tab.method] ?? METHOD_TEXT_CLASS[requestBadgeLabel(tab.request)] ?? 'text-muted-foreground'}`}
                                 >
                                     {tab.method}
                                 </span>

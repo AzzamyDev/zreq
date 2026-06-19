@@ -54,7 +54,12 @@ export default function AuthEditor({
                             {authTypes.find((x) => x.value === auth.type)?.label ?? auth.type}
                         </SelectValue>
                     </SelectTrigger>
-                    <SelectContent container={selectPortalContainer}>
+                    <SelectContent
+                        container={selectPortalContainer}
+                        align="start"
+                        side="bottom"
+                        sideOffset={4}
+                    >
                         {authTypes.map((opt) => (
                             <SelectItem key={opt.value} value={opt.value}>
                                 {opt.label}

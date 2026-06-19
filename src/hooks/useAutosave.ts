@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { buildPersistPayload } from '../lib/persist-request'
 import { useAppStore } from '../store'
 import { useCollection } from './useCollection'
 
@@ -35,16 +36,7 @@ export function useAutosave() {
             if (!readAutosaveEnabled()) return
             const s = useAppStore.getState().activeRequest
             if (s.collectionId !== cid || s.itemId !== iid) return
-            void persistRequestItem(cid, iid, {
-                name: s.name,
-                method: s.method,
-                url: s.url,
-                headers: s.headers,
-                params: s.params,
-                body: s.body,
-                auth: s.auth,
-                scripts: s.scripts,
-            })
+            void persistRequestItem(cid, iid, buildPersistPayload(s))
         }, 1200)
 
         return () => window.clearTimeout(t)
@@ -59,6 +51,10 @@ export function useAutosave() {
         activeRequest.body,
         activeRequest.auth,
         activeRequest.scripts,
+        activeRequest.protocol,
+        activeRequest.subprotocols,
+        activeRequest.savedMessages,
+        activeRequest.messageTemplate,
         persistRequestItem,
         selectedItemId,
     ])

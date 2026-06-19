@@ -15,10 +15,9 @@ import type { KV } from '../../types'
 import type { VariableSuggestionScope } from '../../lib/env-resolver'
 import { GripVertical, Trash2 } from 'lucide-react'
 import VarTemplateField from './VarTemplateField'
+import { cn } from '../../lib/utils'
 
-/** Kolom terakhir lebar tetap agar pembagian `1fr` key/value sama di semua baris (grid terpisah per baris). */
-const ROW_GRID =
-    'grid grid-cols-[1.5rem_1.25rem_minmax(0,1fr)_minmax(0,1fr)_9rem] items-center'
+const TABLE_GRID = 'grid-cols-[1.75rem_2rem_minmax(0,1fr)_minmax(0,1fr)_6rem]'
 
 interface KVEditorProps {
     pairs: KV[]
@@ -26,6 +25,7 @@ interface KVEditorProps {
     keyPlaceholder?: string
     valuePlaceholder?: string
     variableSuggestionScope?: VariableSuggestionScope
+    sectionTitle?: string
 }
 
 interface SortableKVRowProps {
@@ -66,17 +66,21 @@ const SortableKVRow = memo(function SortableKVRow({
         <div
             ref={setNodeRef}
             style={style}
-            {...attributes}
-            className={`group border-b border-border/40 [contain:layout_style] hover:bg-muted/20 ${ROW_GRID}`}
+            className={cn(
+                'group col-span-5 grid grid-cols-subgrid border-b border-border/50 transition-colors hover:bg-muted/15',
+                TABLE_GRID,
+                !pair.enabled && 'opacity-50'
+            )}
         >
             <div
                 ref={setActivatorNodeRef}
-                className="flex touch-none cursor-grab items-center py-1 pl-1 active:cursor-grabbing"
+                className="flex touch-none cursor-grab items-center justify-center border-r border-border/40 active:cursor-grabbing"
+                {...attributes}
                 {...listeners}
             >
-                <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/55 group-hover:text-muted-foreground" />
             </div>
-            <div className="py-1">
+            <div className="flex items-center justify-center border-r border-border/40">
                 <input
                     type="checkbox"
                     checked={pair.enabled}
@@ -84,30 +88,30 @@ const SortableKVRow = memo(function SortableKVRow({
                     className="cursor-pointer accent-primary"
                 />
             </div>
-            <div className="border-l border-border/40 py-1 pr-1">
+            <div className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
                 <input
                     type="text"
                     value={pair.key}
                     onChange={e => onUpdate(pair.id, 'key', e.target.value)}
                     placeholder={keyPlaceholder}
-                    className="w-full bg-transparent px-2 py-0.5 font-mono text-xs focus:outline-none"
+                    className="w-full bg-transparent px-0 py-0 font-mono text-xs leading-normal focus:outline-none"
                 />
             </div>
-            <div className="min-w-0 border-l border-border/40 py-1 pr-1">
+            <div className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
                 <VarTemplateField
                     wrap
                     value={pair.value}
                     onChange={(v) => onUpdate(pair.id, 'value', v)}
-                    className="min-h-7 w-full px-1"
+                    className="w-full px-0 py-0"
                     inputClassName="text-xs"
                     variableSuggestionScope={variableSuggestionScope}
                 />
             </div>
-            <div className="flex items-center justify-center border-l border-border/40 py-1 pl-2 pr-2">
+            <div className="flex items-center justify-center px-1">
                 <button
                     type="button"
                     onClick={() => onDelete(pair.id)}
-                    className="flex cursor-pointer items-center justify-center rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    className="flex cursor-pointer items-center justify-center rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                     title={t('common.remove')}
                 >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -123,6 +127,7 @@ export default function KVEditor({
     keyPlaceholder,
     valuePlaceholder,
     variableSuggestionScope,
+    sectionTitle,
 }: KVEditorProps) {
     const { t } = useTranslation()
     const kp = keyPlaceholder ?? t('common.key')
@@ -236,90 +241,104 @@ export default function KVEditor({
 
     return (
         <div className="w-full">
-            <div className={`border-b border-border ${ROW_GRID}`}>
-                <div className="py-1 pl-1" aria-hidden />
-                <div className="py-1">
-                    <input
-                        ref={selectAllRef}
-                        type="checkbox"
-                        checked={allEnabled}
-                        disabled={pairs.length === 0}
-                        onChange={toggleSelectAll}
-                        className="cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
-                                title={allEnabled ? t('common.unselectAll') : t('common.selectAll')}
-                                aria-label={allEnabled ? t('common.unselectAllRows') : t('common.selectAllRows')}
-                    />
-                </div>
-                <div className="border-l border-border/40 py-1 pr-1 text-left align-middle">
-                    <span className="block px-2 text-xs font-medium text-muted-foreground">
-                                {kp}
-                    </span>
-                </div>
-                <div className="min-w-0 border-l border-border/40 py-1 pr-1 text-left align-middle">
-                    <span className="block px-2 text-xs font-medium text-muted-foreground">
-                                {vp}
-                    </span>
-                </div>
-                <div className="flex items-center justify-end border-l border-border/40 py-1 pl-2 pr-2">
-                    <button
-                        type="button"
-                        onClick={openBulk}
-                        className="max-w-full truncate text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 rounded border border-border/50 hover:border-border"
-                    >
-                        {t('common.bulkEdit')}
-                    </button>
-                </div>
-            </div>
+            {sectionTitle ? (
+                <p className="mb-2 text-xs font-medium text-foreground">{sectionTitle}</p>
+            ) : null}
 
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-                    {pairs.map(pair => (
-                        <SortableKVRow
-                            key={pair.id}
-                            pair={pair}
-                            keyPlaceholder={kp}
-                            onUpdate={updatePair}
-                            onDelete={deletePair}
-                            variableSuggestionScope={variableSuggestionScope}
-                        />
-                    ))}
-                </SortableContext>
-            </DndContext>
+            <div className="overflow-hidden rounded-sm border border-border">
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <div className={cn('grid', TABLE_GRID)}>
+                        <div
+                            className={cn(
+                                'col-span-5 grid grid-cols-subgrid border-b border-border bg-muted/20',
+                                TABLE_GRID
+                            )}
+                        >
+                            <div className="border-r border-border/40" aria-hidden />
+                            <div className="flex items-center justify-center border-r border-border/40">
+                                <input
+                                    ref={selectAllRef}
+                                    type="checkbox"
+                                    checked={allEnabled}
+                                    disabled={pairs.length === 0}
+                                    onChange={toggleSelectAll}
+                                    className="cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                                    title={allEnabled ? t('common.unselectAll') : t('common.selectAll')}
+                                    aria-label={allEnabled ? t('common.unselectAllRows') : t('common.selectAllRows')}
+                                />
+                            </div>
+                            <div className="flex items-center border-r border-border/40 px-2.5 py-2">
+                                <span className="text-xs font-medium text-muted-foreground">{kp}</span>
+                            </div>
+                            <div className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-2">
+                                <span className="text-xs font-medium text-muted-foreground">{vp}</span>
+                            </div>
+                            <div className="flex items-center justify-end px-2 py-1.5">
+                                <button
+                                    type="button"
+                                    onClick={openBulk}
+                                    className="max-w-full truncate rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground border border-border/50"
+                                >
+                                    {t('common.bulkEdit')}
+                                </button>
+                            </div>
+                        </div>
 
-            <div className={`border-b border-border/40 opacity-60 focus-within:opacity-100 ${ROW_GRID}`}>
-                <div className="py-1 pl-1" />
-                <div className="py-1">
-                    <input type="checkbox" disabled className="cursor-not-allowed opacity-40 accent-primary" />
-                </div>
-                <div className="border-l border-border/40 py-1 pr-1">
-                    <input
-                        type="text"
-                        value={draftKey}
-                        onChange={e => setDraftKey(e.target.value)}
-                        onBlur={commitDraft}
-                        onKeyDown={handleDraftKeyDown}
-                        placeholder={kp}
-                        className="w-full bg-transparent px-2 py-0.5 font-mono text-xs focus:outline-none"
-                    />
-                </div>
-                <div className="min-w-0 border-l border-border/40 py-1 pr-1">
-                    <VarTemplateField
-                        wrap
-                        value={draftValue}
-                        onChange={setDraftValue}
-                        onBlur={commitDraft}
-                        inputOnKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === 'Tab') {
-                                e.preventDefault()
-                                commitDraft()
-                            }
-                        }}
-                        className="min-h-7 w-full px-1"
-                        inputClassName="text-xs"
-                        variableSuggestionScope={variableSuggestionScope}
-                    />
-                </div>
-                <div className="border-l border-border/40 py-1 pl-2 pr-2" aria-hidden />
+                        <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                            {pairs.map(pair => (
+                                <SortableKVRow
+                                    key={pair.id}
+                                    pair={pair}
+                                    keyPlaceholder={kp}
+                                    onUpdate={updatePair}
+                                    onDelete={deletePair}
+                                    variableSuggestionScope={variableSuggestionScope}
+                                />
+                            ))}
+                        </SortableContext>
+
+                        <div
+                            className={cn(
+                                'col-span-5 grid grid-cols-subgrid opacity-60 focus-within:opacity-100',
+                                TABLE_GRID
+                            )}
+                        >
+                            <div className="border-r border-border/40" aria-hidden />
+                            <div className="flex items-center justify-center border-r border-border/40">
+                                <input type="checkbox" disabled className="cursor-not-allowed opacity-40 accent-primary" />
+                            </div>
+                            <div className="flex items-center border-r border-border/40 px-2.5 py-1.5">
+                                <input
+                                    type="text"
+                                    value={draftKey}
+                                    onChange={e => setDraftKey(e.target.value)}
+                                    onBlur={commitDraft}
+                                    onKeyDown={handleDraftKeyDown}
+                                    placeholder={kp}
+                                    className="w-full bg-transparent px-0 py-0 font-mono text-xs leading-normal focus:outline-none"
+                                />
+                            </div>
+                            <div className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
+                                <VarTemplateField
+                                    wrap
+                                    value={draftValue}
+                                    onChange={setDraftValue}
+                                    onBlur={commitDraft}
+                                    inputOnKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === 'Tab') {
+                                            e.preventDefault()
+                                            commitDraft()
+                                        }
+                                    }}
+                                    className="w-full px-0 py-0"
+                                    inputClassName="text-xs"
+                                    variableSuggestionScope={variableSuggestionScope}
+                                />
+                            </div>
+                            <div aria-hidden />
+                        </div>
+                    </div>
+                </DndContext>
             </div>
         </div>
     )

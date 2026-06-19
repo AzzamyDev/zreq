@@ -171,8 +171,11 @@ function resolveInheritedAuth(collectionId: number, folderId: string | undefined
     return collection.auth ?? { type: 'none' }
 }
 
+import { splitUrlQuery } from './query-params'
+
 export function resolveRequest(req: ActiveRequest, vars: Record<string, string>) {
-    let url = resolveEnvVars(req.url || '', vars)
+    const { baseUrl } = splitUrlQuery(req.url || '')
+    let url = resolveEnvVars(baseUrl, vars)
 
     const enabledParams = (req.params || []).filter((p) => p.enabled && p.key)
     if (enabledParams.length > 0) {
@@ -278,4 +281,56 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
     }
 
     return { method: req.method || 'GET', url, headers, body, body_type: bodyType }
+}
+
+export function resolveWebSocketRequest(req: ActiveRequest, vars: Record<string, string>) {
+    let url = resolveEnvVars((req.url || '').trim(), vars)
+    if (url && !/^wss?:\/\//i.test(url)) {
+        if (/^https?:\/\//i.test(url)) {
+            url = url.replace(/^http/i, 'ws')
+        } else {
+            url = `ws://${url.replace(/^\/+/, '')}`
+        }
+    }
+
+    const headers: Record<string, string> = {}
+    for (const h of (req.headers || []).filter((h) => h.enabled && h.key)) {
+        headers[resolveEnvVars(h.key, vars)] = resolveEnvVars(h.value || '', vars)
+    }
+
+    let auth: AuthConfig = req.auth || { type: 'none' }
+    if (auth.type === 'inherit' && req.collectionId != null) {
+        auth = resolveInheritedAuth(req.collectionId, req.folderId)
+    }
+    if (
+        auth.type === 'none' &&
+        req.collectionId != null &&
+        req.folderId &&
+        !auth.overrideParent
+    ) {
+        const inherited = resolveInheritedAuth(req.collectionId, req.folderId)
+        if (inherited.type !== 'none') auth = inherited
+    }
+    if (auth.type === 'bearer') {
+        const tok = resolveEnvVars(auth.token ?? '', vars).trim()
+        if (tok) headers['Authorization'] = `Bearer ${tok}`
+    } else if (auth.type === 'basic') {
+        const username = resolveEnvVars(auth.username ?? '', vars)
+        const password = resolveEnvVars(auth.password ?? '', vars)
+        headers['Authorization'] = `Basic ${btoa(`${username}:${password}`)}`
+    } else if (auth.type === 'jwt') {
+        const tok = resolveEnvVars(auth.token ?? '', vars).trim()
+        if (tok) {
+            const prefix = (auth.prefix || 'Bearer').trim() || 'Bearer'
+            headers['Authorization'] = `${prefix} ${tok}`
+        }
+    }
+
+    const subprotocols = (req.subprotocols || '')
+        .split(',')
+        .map((s) => resolveEnvVars(s.trim(), vars))
+        .filter(Boolean)
+        .join(', ')
+
+    return { url, headers, subprotocols }
 }

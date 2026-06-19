@@ -12,7 +12,15 @@ import type {
     ConsoleEntry,
     RequestTab,
     Workspace,
+    WsConnectionState,
+    WsFrame,
+    WsHandshake,
+    RequestProtocol,
 } from '../types'
+import { invoke } from '@tauri-apps/api/core'
+import { withNormalizedQuery } from '../lib/query-params'
+import { inferProtocolFromUrl } from '../lib/persist-request'
+import { rangeSelectIds, type SidebarSelection } from '../lib/collection-tree-select'
 
 const ENV_MAP_KEY = 'zreq_environment_by_workspace'
 const LEGACY_ENV_ID_KEY = 'zreq_environment_id'
@@ -106,13 +114,26 @@ function pickActiveEnvironmentId(
 
 const SIDEBAR_EXPAND_KEY = 'zreq_sidebar_expand'
 
+const readExpandFlag = (v: unknown, defaultValue: boolean): boolean => {
+    if (v === true || v === false) return v
+    if (v === 'true') return true
+    if (v === 'false') return false
+    return defaultValue
+}
+
 const readSidebarExpanded = (): Record<string, boolean> => {
     try {
         const raw = localStorage.getItem(SIDEBAR_EXPAND_KEY)
         if (!raw) return {}
         const p = JSON.parse(raw) as unknown
         if (!p || typeof p !== 'object') return {}
-        return p as Record<string, boolean>
+        const out: Record<string, boolean> = {}
+        for (const [k, v] of Object.entries(p as Record<string, unknown>)) {
+            if (v === true || v === false) out[k] = v
+            else if (v === 'true') out[k] = true
+            else if (v === 'false') out[k] = false
+        }
+        return out
     } catch {
         return {}
     }
@@ -144,6 +165,47 @@ const defaultRequest: ActiveRequest = {
     body: { type: 'none', content: '' },
     auth: { type: 'none' },
     name: 'Untitled Request',
+    protocol: 'http',
+}
+
+const defaultWsTabFields = {
+    wsState: 'idle' as WsConnectionState,
+    wsFrames: [] as WsFrame[],
+    wsHandshake: null as WsHandshake | null,
+    wsConnectedAt: null as number | null,
+}
+
+function tabMethodLabel(req: ActiveRequest): string {
+    return (req.protocol ?? 'http') === 'ws' ? 'WS' : req.method || 'GET'
+}
+
+function createRequestTab(id: string, req: ActiveRequest, overrides?: Partial<RequestTab>): RequestTab {
+    const normalized = withNormalizedQuery(req)
+    return {
+        id,
+        name: normalized.name || 'New Request',
+        method: tabMethodLabel(normalized),
+        isDirty: false,
+        request: normalized,
+        response: null,
+        ...defaultWsTabFields,
+        ...overrides,
+    }
+}
+
+async function disconnectWsSession(sessionId: string) {
+    try {
+        await invoke('ws_disconnect', { sessionId })
+    } catch {
+        /* ignore */
+    }
+}
+
+function resetTabWsState(tab: RequestTab) {
+    tab.wsState = 'idle'
+    tab.wsFrames = []
+    tab.wsHandshake = null
+    tab.wsConnectedAt = null
 }
 
 function cloneHttpResponse(r: HttpResponse | null): HttpResponse | null {
@@ -201,6 +263,12 @@ interface AppState {
     setResponse: (r: HttpResponse | null) => void
     setLoading: (v: boolean) => void
 
+    setWsState: (tabId: string, state: WsConnectionState) => void
+    appendWsFrame: (tabId: string, frame: WsFrame) => void
+    clearWsFrames: (tabId: string) => void
+    setWsHandshake: (tabId: string, handshake: WsHandshake | null) => void
+    setWsConnectedAt: (tabId: string, at: number | null) => void
+
     environments: Environment[]
     activeEnvironmentId: number | null
     setEnvironments: (e: Environment[]) => void
@@ -212,6 +280,19 @@ interface AppState {
     selectedItemId: string | null
     setSelectedItemId: (id: string | null) => void
 
+    /** Multi-select in collection sidebar (requests + folders) */
+    sidebarSelection: SidebarSelection | null
+    /** Last clicked item — anchor for Shift+click range without prior multi-select */
+    sidebarSelectAnchor: { collectionId: number; itemId: string } | null
+    selectSidebarItem: (
+        collectionId: number,
+        itemId: string,
+        mode: 'replace' | 'toggle' | 'range',
+        flatVisibleIds?: string[]
+    ) => void
+    setSidebarSelectAnchor: (collectionId: number, itemId: string) => void
+    clearSidebarSelection: () => void
+
     consoleLogs: ConsoleEntry[]
     addConsoleLog: (entry: Omit<ConsoleEntry, 'id' | 'timestamp'>) => void
     clearConsoleLogs: () => void
@@ -221,6 +302,8 @@ interface AppState {
 
     /** `col:{id}` = collection row open; `fld:{collectionId}:{folderId}` = folder open */
     sidebarExpanded: Record<string, boolean>
+    /** Bumped on bulk expand/collapse so folder rows re-render reliably */
+    sidebarExpandRevision: number
     setSidebarCollectionExpanded: (collectionId: number, expanded: boolean) => void
     toggleSidebarCollectionExpanded: (collectionId: number) => void
     setSidebarFolderExpanded: (collectionId: number, folderId: string, expanded: boolean) => void
@@ -347,35 +430,21 @@ export const useAppStore = create<AppState>()(
                 }
             }),
 
-        tabs: [
-            {
-                id: 'default',
-                name: 'New Request',
-                method: 'GET',
-                isDirty: false,
-                request: { ...defaultRequest },
-                response: null,
-            },
-        ],
+        tabs: [createRequestTab('default', { ...defaultRequest })],
         activeTabId: 'default',
 
         addTab: (item) =>
             set((s) => {
                 const id = nanoid()
-                const req = item ? { ...defaultRequest, ...item } : { ...defaultRequest }
+                const req = withNormalizedQuery(
+                    item ? { ...defaultRequest, ...item } : { ...defaultRequest },
+                )
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
                 if (cur) {
                     cur.request = { ...s.activeRequest }
                     cur.response = cloneHttpResponse(s.response)
                 }
-                s.tabs.push({
-                    id,
-                    name: req.name || 'New Request',
-                    method: req.method || 'GET',
-                    isDirty: false,
-                    request: req,
-                    response: null,
-                })
+                s.tabs.push(createRequestTab(id, req))
                 s.activeTabId = id
                 s.activeRequest = req
                 s.response = null
@@ -386,6 +455,12 @@ export const useAppStore = create<AppState>()(
             const tab = get().tabs.find((t) => t.id === id)
             if (!tab) return false
             if (tab.isDirty && !force) return false
+            if (
+                (tab.request.protocol ?? 'http') === 'ws' &&
+                (tab.wsState === 'connected' || tab.wsState === 'connecting')
+            ) {
+                void disconnectWsSession(id)
+            }
             set((s) => {
                 s.tabs = s.tabs.filter((t) => t.id !== id)
                 if (s.tabs.length === 0) {
@@ -400,7 +475,7 @@ export const useAppStore = create<AppState>()(
                 if (s.activeTabId === id) {
                     const next = s.tabs[s.tabs.length - 1]
                     s.activeTabId = next.id
-                    s.activeRequest = { ...next.request }
+                    s.activeRequest = withNormalizedQuery({ ...next.request })
                     s.response = cloneHttpResponse(next.response)
                 }
             })
@@ -421,14 +496,13 @@ export const useAppStore = create<AppState>()(
                 const copySuffix = i18n.t('requestTab.duplicateCopySuffix')
                 const baseName = src.name.trimEnd()
                 req.name = `${baseName}${copySuffix}`
-                s.tabs.push({
-                    id: newId,
-                    name: req.name,
-                    method: req.method || 'GET',
-                    isDirty: true,
-                    request: req,
-                    response: cloneHttpResponse(src.response),
-                })
+                s.tabs.push(
+                    createRequestTab(newId, req, {
+                        name: req.name,
+                        isDirty: true,
+                        response: cloneHttpResponse(src.response),
+                    }),
+                )
                 s.activeTabId = newId
                 s.activeRequest = req
                 s.response = cloneHttpResponse(src.response)
@@ -440,6 +514,14 @@ export const useAppStore = create<AppState>()(
             const toClose = tabs.filter((t) => t.id !== keepId)
             if (toClose.length === 0) return true
             if (!force && toClose.some((t) => t.isDirty)) return false
+            for (const tab of toClose) {
+                if (
+                    (tab.request.protocol ?? 'http') === 'ws' &&
+                    (tab.wsState === 'connected' || tab.wsState === 'connecting')
+                ) {
+                    void disconnectWsSession(tab.id)
+                }
+            }
             set((s) => {
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
                 if (cur) {
@@ -450,7 +532,7 @@ export const useAppStore = create<AppState>()(
                 if (!kept) return
                 s.tabs = [kept]
                 s.activeTabId = keepId
-                s.activeRequest = { ...kept.request }
+                s.activeRequest = withNormalizedQuery({ ...kept.request })
                 s.response = cloneHttpResponse(kept.response)
                 s.isLoading = false
             })
@@ -461,6 +543,14 @@ export const useAppStore = create<AppState>()(
             const { tabs } = get()
             if (tabs.length === 0) return true
             if (!force && tabs.some((t) => t.isDirty)) return false
+            for (const tab of tabs) {
+                if (
+                    (tab.request.protocol ?? 'http') === 'ws' &&
+                    (tab.wsState === 'connected' || tab.wsState === 'connecting')
+                ) {
+                    void disconnectWsSession(tab.id)
+                }
+            }
             set((s) => {
                 s.tabs = []
                 s.activeTabId = null
@@ -483,8 +573,40 @@ export const useAppStore = create<AppState>()(
                     currentTab.response = cloneHttpResponse(s.response)
                 }
                 s.activeTabId = id
-                s.activeRequest = { ...tab.request }
+                const normalized = withNormalizedQuery({ ...tab.request })
+                tab.request = normalized
+                s.activeRequest = { ...normalized }
                 s.response = cloneHttpResponse(tab.response)
+            }),
+
+        setWsState: (tabId, wsState) =>
+            set((s) => {
+                const tab = s.tabs.find((t) => t.id === tabId)
+                if (tab) tab.wsState = wsState
+            }),
+
+        appendWsFrame: (tabId, frame) =>
+            set((s) => {
+                const tab = s.tabs.find((t) => t.id === tabId)
+                if (tab) tab.wsFrames.push(frame)
+            }),
+
+        clearWsFrames: (tabId) =>
+            set((s) => {
+                const tab = s.tabs.find((t) => t.id === tabId)
+                if (tab) tab.wsFrames = []
+            }),
+
+        setWsHandshake: (tabId, handshake) =>
+            set((s) => {
+                const tab = s.tabs.find((t) => t.id === tabId)
+                if (tab) tab.wsHandshake = handshake
+            }),
+
+        setWsConnectedAt: (tabId, at) =>
+            set((s) => {
+                const tab = s.tabs.find((t) => t.id === tabId)
+                if (tab) tab.wsConnectedAt = at
             }),
 
         updateTabRequest: (id, req) =>
@@ -493,7 +615,8 @@ export const useAppStore = create<AppState>()(
                 if (!tab) return
                 Object.assign(tab.request, req)
                 if (req.name) tab.name = req.name
-                if (req.method) tab.method = req.method
+                if (req.method) tab.method = tabMethodLabel(tab.request)
+                if (req.protocol) tab.method = tabMethodLabel(tab.request)
                 tab.isDirty = true
             }),
 
@@ -506,14 +629,24 @@ export const useAppStore = create<AppState>()(
         activeRequest: { ...defaultRequest },
         setActiveRequest: (partial) =>
             set((s) => {
+                const prevProtocol = s.activeRequest.protocol ?? 'http'
                 Object.assign(s.activeRequest, partial)
-                // Sync to active tab
                 const tab = s.tabs.find((t) => t.id === s.activeTabId)
                 if (tab) {
                     Object.assign(tab.request, partial)
-                    if (partial.method) tab.method = partial.method
+                    if (partial.method || partial.protocol) tab.method = tabMethodLabel(tab.request)
                     if (partial.name) tab.name = partial.name
                     tab.isDirty = true
+                    const nextProtocol = (partial.protocol ?? tab.request.protocol ?? 'http') as RequestProtocol
+                    if (partial.protocol != null && nextProtocol !== prevProtocol) {
+                        if (
+                            prevProtocol === 'ws' &&
+                            (tab.wsState === 'connected' || tab.wsState === 'connecting')
+                        ) {
+                            void disconnectWsSession(tab.id)
+                        }
+                        resetTabWsState(tab)
+                    }
                 }
             }),
         loadRequestItem: (item, breadcrumbPath?, ctx?) =>
@@ -534,7 +667,9 @@ export const useAppStore = create<AppState>()(
                             cur.response = cloneHttpResponse(s.response)
                         }
                         s.activeTabId = dup.id
-                        s.activeRequest = { ...dup.request }
+                        const normalized = withNormalizedQuery({ ...dup.request })
+                        dup.request = normalized
+                        s.activeRequest = { ...normalized }
                         s.response = cloneHttpResponse(dup.response)
                         s.isLoading = false
                         s.selectedItemId = item.id
@@ -543,7 +678,7 @@ export const useAppStore = create<AppState>()(
                     }
                 }
 
-                const req: ActiveRequest = {
+                const req: ActiveRequest = withNormalizedQuery({
                     method: item.method || 'GET',
                     url: item.url || '',
                     headers: Array.isArray(item.headers) ? item.headers : [],
@@ -557,21 +692,18 @@ export const useAppStore = create<AppState>()(
                     scripts: item.scripts,
                     collectionId: ctx?.collectionId,
                     folderId: ctx?.folderId,
-                }
+                    protocol: inferProtocolFromUrl(item.url ?? '', item.protocol),
+                    subprotocols: item.subprotocols,
+                    savedMessages: item.savedMessages ? [...item.savedMessages] : [],
+                    messageTemplate: item.messageTemplate,
+                })
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
                 if (cur) {
                     cur.request = { ...s.activeRequest }
                     cur.response = cloneHttpResponse(s.response)
                 }
                 const id = nanoid()
-                s.tabs.push({
-                    id,
-                    name: item.name || 'Untitled Request',
-                    method: item.method || 'GET',
-                    isDirty: false,
-                    request: req,
-                    response: null,
-                })
+                s.tabs.push(createRequestTab(id, req))
                 s.activeTabId = id
                 s.activeRequest = req
                 s.response = null
@@ -593,6 +725,7 @@ export const useAppStore = create<AppState>()(
                     tab.method = 'GET'
                     tab.isDirty = false
                     tab.response = null
+                    resetTabWsState(tab)
                 }
             }),
 
@@ -650,6 +783,53 @@ export const useAppStore = create<AppState>()(
                 s.selectedItemId = id
             }),
 
+        sidebarSelection: null,
+        sidebarSelectAnchor: null,
+        selectSidebarItem: (collectionId, itemId, mode, flatVisibleIds) =>
+            set((s) => {
+                const cur = s.sidebarSelection
+                if (mode === 'replace') {
+                    s.sidebarSelection = { collectionId, ids: [itemId], anchorId: itemId }
+                    s.sidebarSelectAnchor = { collectionId, itemId }
+                    return
+                }
+                if (mode === 'toggle') {
+                    if (cur?.collectionId !== collectionId) {
+                        s.sidebarSelection = { collectionId, ids: [itemId], anchorId: itemId }
+                    } else {
+                        const ids = [...cur.ids]
+                        const idx = ids.indexOf(itemId)
+                        if (idx === -1) ids.push(itemId)
+                        else ids.splice(idx, 1)
+                        s.sidebarSelection =
+                            ids.length === 0
+                                ? null
+                                : { collectionId, ids, anchorId: itemId }
+                    }
+                    s.sidebarSelectAnchor = { collectionId, itemId }
+                    return
+                }
+                if (mode === 'range' && flatVisibleIds?.length) {
+                    const anchor =
+                        cur?.collectionId === collectionId
+                            ? cur.anchorId
+                            : s.sidebarSelectAnchor?.collectionId === collectionId
+                              ? s.sidebarSelectAnchor.itemId
+                              : itemId
+                    const ids = rangeSelectIds(flatVisibleIds, anchor, itemId)
+                    s.sidebarSelection = { collectionId, ids, anchorId: anchor }
+                    s.sidebarSelectAnchor = { collectionId, itemId }
+                }
+            }),
+        setSidebarSelectAnchor: (collectionId, itemId) =>
+            set((s) => {
+                s.sidebarSelectAnchor = { collectionId, itemId }
+            }),
+        clearSidebarSelection: () =>
+            set((s) => {
+                s.sidebarSelection = null
+            }),
+
         consoleLogs: [],
         addConsoleLog: (entry) =>
             set((s) => {
@@ -667,6 +847,7 @@ export const useAppStore = create<AppState>()(
             }),
 
         sidebarExpanded: readSidebarExpanded(),
+        sidebarExpandRevision: 0,
         setSidebarCollectionExpanded: (collectionId, expanded) =>
             set((s) => {
                 s.sidebarExpanded[`col:${collectionId}`] = expanded
@@ -675,7 +856,7 @@ export const useAppStore = create<AppState>()(
         toggleSidebarCollectionExpanded: (collectionId) =>
             set((s) => {
                 const k = `col:${collectionId}`
-                const cur = s.sidebarExpanded[k] ?? true
+                const cur = readExpandFlag(s.sidebarExpanded[k], true)
                 s.sidebarExpanded[k] = !cur
                 persistSidebarExpanded(s.sidebarExpanded)
             }),
@@ -687,16 +868,29 @@ export const useAppStore = create<AppState>()(
         toggleSidebarFolderExpanded: (collectionId, folderId) =>
             set((s) => {
                 const k = `fld:${collectionId}:${folderId}`
-                const cur = s.sidebarExpanded[k] ?? false
+                const cur = readExpandFlag(s.sidebarExpanded[k], false)
                 s.sidebarExpanded[k] = !cur
                 persistSidebarExpanded(s.sidebarExpanded)
             }),
         setAllSidebarFoldersExpanded: (collectionId, items, expanded) =>
             set((s) => {
-                walkFolderIds(items, collectionId, (key) => {
-                    s.sidebarExpanded[key] = expanded
-                })
-                persistSidebarExpanded(s.sidebarExpanded)
+                const next = { ...s.sidebarExpanded, [`col:${collectionId}`]: true }
+                const prefix = `fld:${collectionId}:`
+                if (expanded) {
+                    walkFolderIds(items, collectionId, (key) => {
+                        next[key] = true
+                    })
+                } else {
+                    walkFolderIds(items, collectionId, (key) => {
+                        delete next[key]
+                    })
+                    for (const k of Object.keys(next)) {
+                        if (k.startsWith(prefix)) delete next[k]
+                    }
+                }
+                s.sidebarExpanded = next
+                s.sidebarExpandRevision += 1
+                persistSidebarExpanded(next)
             }),
 
         applyRemotePullBundle: (p) =>
@@ -743,20 +937,13 @@ export const useAppStore = create<AppState>()(
                 s.environments = []
                 s.activeEnvironmentId = null
                 s.selectedItemId = null
+                s.sidebarSelection = null
+                s.sidebarSelectAnchor = null
                 s.response = null
                 s.isLoading = false
                 s.breadcrumb = []
                 s.consoleLogs = []
-                s.tabs = [
-                    {
-                        id: 'default',
-                        name: 'New Request',
-                        method: 'GET',
-                        isDirty: false,
-                        request: { ...defaultRequest },
-                        response: null,
-                    },
-                ]
+                s.tabs = [createRequestTab('default', { ...defaultRequest })]
                 s.activeTabId = 'default'
                 s.activeRequest = { ...defaultRequest }
                 s.sidebarExpanded = {}

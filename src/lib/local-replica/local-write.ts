@@ -2,7 +2,7 @@ import { useAppStore } from '@/store'
 import { useAuthStore } from '@/store/authStore'
 import type { Collection, Environment, Workspace } from '@/types'
 import * as snap from './snapshot-store'
-import { enqueueOp, listPending, removeOp } from './outbox-ops'
+import { enqueueCoalescedPatch, enqueueOp, listPending, removeOp } from './outbox-ops'
 import { getReplicaKeyOrNull, ensureReplicaLoaded, scheduleSync } from './sync-engine'
 import { useSyncStore } from '@/store/syncStore'
 
@@ -69,14 +69,18 @@ export async function writeCollectionPatch(collectionId: number, body: Record<st
     const exp = expectedCollection(collectionId) ?? row?.updatedAt
     snap.markCollectionDirty(collectionId)
     snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
-    await enqueueOp({
-        type: 'collection_patch',
-        replicaKey: key,
-        collectionId,
-        workspaceId: wid,
-        body,
-        expectedUpdatedAt: exp,
-    })
+    await enqueueCoalescedPatch(
+        key,
+        (o) => o.type === 'collection_patch' && o.collectionId === collectionId,
+        {
+            type: 'collection_patch',
+            replicaKey: key,
+            collectionId,
+            workspaceId: wid,
+            body,
+            expectedUpdatedAt: exp,
+        }
+    )
     await bumpPending()
     scheduleSync()
 }
@@ -170,13 +174,17 @@ export async function writeWorkspacePatch(workspaceId: number, body: { name: str
     const wrow = useAppStore.getState().workspaces.find((x) => x.id === workspaceId)
     const exp = expectedWorkspace(workspaceId) ?? wrow?.updatedAt
     snap.markWorkspaceDirty(workspaceId)
-    await enqueueOp({
-        type: 'workspace_patch',
-        replicaKey: key,
-        workspaceId,
-        body,
-        expectedUpdatedAt: exp,
-    })
+    await enqueueCoalescedPatch(
+        key,
+        (o) => o.type === 'workspace_patch' && o.workspaceId === workspaceId,
+        {
+            type: 'workspace_patch',
+            replicaKey: key,
+            workspaceId,
+            body,
+            expectedUpdatedAt: exp,
+        }
+    )
     await bumpPending()
     scheduleSync()
 }
@@ -225,14 +233,18 @@ export async function writeEnvironmentPatch(environmentId: number, body: Record<
     snap.applyMemory((mem) => {
         mem.environmentsByWorkspaceId[String(wid)] = structuredClone(useAppStore.getState().environments)
     })
-    await enqueueOp({
-        type: 'environment_patch',
-        replicaKey: key,
-        workspaceId: wid,
-        environmentId,
-        body,
-        expectedUpdatedAt: exp,
-    })
+    await enqueueCoalescedPatch(
+        key,
+        (o) => o.type === 'environment_patch' && o.environmentId === environmentId,
+        {
+            type: 'environment_patch',
+            replicaKey: key,
+            workspaceId: wid,
+            environmentId,
+            body,
+            expectedUpdatedAt: exp,
+        }
+    )
     await bumpPending()
     scheduleSync()
 }

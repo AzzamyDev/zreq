@@ -3,34 +3,19 @@ import { useAppStore } from '@/store'
 import { useSyncStore } from '@/store/syncStore'
 import type { Collection, Environment, Workspace } from '@/types'
 import * as snap from './snapshot-store'
-import { listPending, removeOp } from './outbox-ops'
+import { removeOp, removeSiblingOutboxOps } from './outbox-ops'
 import type { ConflictEntry } from './types'
 import { getReplicaKeyOrNull, pullThenPush } from './sync-engine'
 
-async function removeSiblingOutboxOps(c: ConflictEntry) {
+async function removeSiblingOutboxOpsForConflict(c: ConflictEntry) {
     const key = getReplicaKeyOrNull()
     if (!key) return
-    const ops = await listPending(key)
-    for (const op of ops) {
-        if (c.kind === 'collection') {
-            if ((op.type === 'collection_patch' || op.type === 'collection_delete') && op.collectionId === c.entityId) {
-                await removeOp(op.id)
-            }
-        } else if (c.kind === 'workspace') {
-            if ((op.type === 'workspace_patch' || op.type === 'workspace_delete') && op.workspaceId === c.entityId) {
-                await removeOp(op.id)
-            }
-        } else if (c.kind === 'environment') {
-            if ((op.type === 'environment_patch' || op.type === 'environment_delete') && op.environmentId === c.entityId) {
-                await removeOp(op.id)
-            }
-        }
-    }
+    await removeSiblingOutboxOps(key, c.kind, c.entityId, { includeDeletes: true })
 }
 
 export async function resolveConflictKeepServer(c: ConflictEntry) {
     if (c.outboxOpId) await removeOp(c.outboxOpId)
-    await removeSiblingOutboxOps(c)
+    await removeSiblingOutboxOpsForConflict(c)
 
     if (c.kind === 'collection' && c.workspaceId != null) {
         const srv = c.server as Collection
@@ -126,7 +111,7 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
 
     await snap.persistSnapshotNow()
     if (c.outboxOpId) await removeOp(c.outboxOpId)
-    await removeSiblingOutboxOps(c)
+    await removeSiblingOutboxOpsForConflict(c)
     useSyncStore.getState().removeConflict(c.id)
     await pullThenPush()
 }

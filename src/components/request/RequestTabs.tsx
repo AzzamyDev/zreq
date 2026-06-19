@@ -5,26 +5,40 @@ import { useAppStore } from '../../store'
 import KVEditor from './KVEditor'
 import AuthEditor from './AuthEditor'
 import BodyEditor from './BodyEditor'
-import ScriptEditor from './ScriptEditor'
+import ScriptsPanel from './ScriptsPanel'
+import WsMessageComposer from './WsMessageComposer'
+import WsSavedMessages from './WsSavedMessages'
 import type { KV, AuthConfig, RequestBody } from '../../types'
 
 function countActive(pairs: KV[]): number {
     return pairs.filter((p) => p.enabled && p.key).length
 }
 
-function Badge({ count }: { count: number }) {
-    if (count === 0) return null
+function TabDot({ show }: { show: boolean }) {
+    if (!show) return null
     return (
-        <span className="ml-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-            {count}
-        </span>
+        <span
+            className="bg-primary ml-1.5 inline-block size-1.5 shrink-0 rounded-full"
+            aria-hidden
+        />
     )
 }
 
-export default function RequestTabs() {
+const TAB_TRIGGER_CLASS =
+    'min-w-[120px] border-transparent px-3 pb-2.5 pt-1 data-active:border-transparent data-active:bg-transparent data-active:after:-bottom-px data-active:after:h-0.5 data-active:after:bg-primary dark:data-active:border-transparent dark:data-active:bg-transparent'
+
+interface RequestTabsProps {
+    onWsSend: (data: string, isBinary: boolean) => void
+    onWsPing: (payload?: string) => void
+    wsConnected: boolean
+}
+
+export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: RequestTabsProps) {
     const { t } = useTranslation()
     const [activeTab, setActiveTab] = useState<string>('params')
     const { activeRequest, setActiveRequest } = useAppStore()
+    const protocol = activeRequest.protocol ?? 'http'
+    const isWs = protocol === 'ws'
 
     const paramsCount = countActive(activeRequest.params)
     const headersCount = countActive(activeRequest.headers)
@@ -38,6 +52,98 @@ export default function RequestTabs() {
             !!activeRequest.folderId)
             ? 1
             : 0
+    const scriptsCount = [activeRequest.scripts?.preRequest, activeRequest.scripts?.postResponse].filter(
+        (s) => !!s?.trim()
+    ).length
+    const savedCount = activeRequest.savedMessages?.length ?? 0
+    const messageActive = activeRequest.messageTemplate?.trim() ? 1 : 0
+
+    if (isWs) {
+        return (
+            <Tabs
+                value={activeTab === 'params' || activeTab === 'body' ? 'message' : activeTab}
+                onValueChange={(val) => setActiveTab(String(val))}
+                className="flex h-full min-h-0 flex-col"
+            >
+                <div className="w-full border-b border-border">
+                    <TabsList variant="line" className="w-fit items-end justify-start gap-1 rounded-none px-3">
+                        <TabsTrigger
+                            className={`${TAB_TRIGGER_CLASS} data-active:after:bg-[var(--dracula-cyan)]/50`}
+                            value="headers"
+                        >
+                            {t('request.headers')}
+                            <TabDot show={headersCount > 0} />
+                        </TabsTrigger>
+                        <TabsTrigger
+                            className={`${TAB_TRIGGER_CLASS} data-active:after:bg-[var(--dracula-cyan)]/50`}
+                            value="auth"
+                        >
+                            {t('request.auth')}
+                            <TabDot show={authActive > 0} />
+                        </TabsTrigger>
+                        <TabsTrigger
+                            className={`${TAB_TRIGGER_CLASS} data-active:after:bg-[var(--dracula-cyan)]/50`}
+                            value="message"
+                        >
+                            {t('websocket.message')}
+                            <TabDot show={messageActive > 0} />
+                        </TabsTrigger>
+                        <TabsTrigger
+                            className={`${TAB_TRIGGER_CLASS} data-active:after:bg-[var(--dracula-cyan)]/50`}
+                            value="saved"
+                        >
+                            {t('websocket.savedMessages')}
+                            <TabDot show={savedCount > 0} />
+                        </TabsTrigger>
+                        <TabsTrigger
+                            className={`${TAB_TRIGGER_CLASS} data-active:after:bg-[var(--dracula-cyan)]/50`}
+                            value="scripts"
+                        >
+                            {t('request.scripts')}
+                            <TabDot show={scriptsCount > 0} />
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
+
+                <TabsContent value="headers" className="min-h-0 flex-1 overflow-auto p-3">
+                    <KVEditor
+                        pairs={activeRequest.headers}
+                        onChange={(pairs: KV[]) => setActiveRequest({ headers: pairs })}
+                        keyPlaceholder={t('request.header')}
+                        valuePlaceholder={t('common.value')}
+                    />
+                </TabsContent>
+
+                <TabsContent value="auth" className="min-h-0 flex-1 overflow-auto">
+                    <AuthEditor
+                        auth={activeRequest.auth}
+                        onChange={(auth: AuthConfig) => setActiveRequest({ auth })}
+                    />
+                </TabsContent>
+
+                <TabsContent value="message" className="min-h-0 flex-1 overflow-hidden">
+                    <WsMessageComposer onSend={onWsSend} onPing={onWsPing} disabled={!wsConnected} />
+                </TabsContent>
+
+                <TabsContent value="saved" className="min-h-0 flex-1 overflow-auto">
+                    <WsSavedMessages onSend={onWsSend} />
+                </TabsContent>
+
+                <TabsContent value="scripts" className="min-h-0 flex-1 overflow-hidden" keepMounted>
+                    <ScriptsPanel
+                        preRequest={activeRequest.scripts?.preRequest ?? ''}
+                        postResponse={activeRequest.scripts?.postResponse ?? ''}
+                        onPreChange={(v) =>
+                            setActiveRequest({ scripts: { ...activeRequest.scripts, preRequest: v } })
+                        }
+                        onPostChange={(v) =>
+                            setActiveRequest({ scripts: { ...activeRequest.scripts, postResponse: v } })
+                        }
+                    />
+                </TabsContent>
+            </Tabs>
+        )
+    }
 
     return (
         <Tabs
@@ -46,25 +152,31 @@ export default function RequestTabs() {
             className="flex h-full min-h-0 flex-col"
         >
             <div className='border-b border-border w-full'>
-                <TabsList variant="line" className="w-fit justify-start rounded-none px-3">
-                    <TabsTrigger id="request-tab-params" className="min-w-[120px]" value="params">
+                <TabsList variant="line" className="w-fit items-end justify-start gap-1 rounded-none px-3">
+                    <TabsTrigger
+                        id="request-tab-params"
+                        className={TAB_TRIGGER_CLASS}
+                        value="params"
+                    >
                         {t('request.params')}
-                        <Badge count={paramsCount} />
+                        <TabDot show={paramsCount > 0} />
                     </TabsTrigger>
-                    <TabsTrigger className="min-w-[120px]" value="headers">
+                    <TabsTrigger className={TAB_TRIGGER_CLASS} value="headers">
                         {t('request.headers')}
-                        <Badge count={headersCount} />
+                        <TabDot show={headersCount > 0} />
                     </TabsTrigger>
-                    <TabsTrigger className="min-w-[120px]" value="body">
+                    <TabsTrigger className={TAB_TRIGGER_CLASS} value="body">
                         {t('request.body')}
-                        <Badge count={bodyActive} />
+                        <TabDot show={bodyActive > 0} />
                     </TabsTrigger>
-                    <TabsTrigger className="min-w-[120px]" value="auth">
+                    <TabsTrigger className={TAB_TRIGGER_CLASS} value="auth">
                         {t('request.auth')}
-                        <Badge count={authActive} />
+                        <TabDot show={authActive > 0} />
                     </TabsTrigger>
-                    <TabsTrigger className="min-w-[120px]" value="pre-request">{t('request.preRequest')}</TabsTrigger>
-                    <TabsTrigger className="min-w-[120px]" value="post-response">{t('request.postResponse')}</TabsTrigger>
+                    <TabsTrigger className={TAB_TRIGGER_CLASS} value="scripts">
+                        {t('request.scripts')}
+                        <TabDot show={scriptsCount > 0} />
+                    </TabsTrigger>
                 </TabsList>
             </div>
 
@@ -72,8 +184,9 @@ export default function RequestTabs() {
                 <KVEditor
                     pairs={activeRequest.params}
                     onChange={(pairs: KV[]) => setActiveRequest({ params: pairs })}
-                    keyPlaceholder={t('request.param')}
+                    keyPlaceholder={t('common.key')}
                     valuePlaceholder={t('common.value')}
+                    sectionTitle={t('request.queryParams')}
                 />
             </TabsContent>
 
@@ -81,12 +194,13 @@ export default function RequestTabs() {
                 <KVEditor
                     pairs={activeRequest.headers}
                     onChange={(pairs: KV[]) => setActiveRequest({ headers: pairs })}
-                    keyPlaceholder={t('request.header')}
+                    keyPlaceholder={t('common.key')}
                     valuePlaceholder={t('common.value')}
+                    sectionTitle={t('request.requestHeaders')}
                 />
             </TabsContent>
 
-            <TabsContent value="body" className="min-h-0 flex-1 overflow-auto" keepMounted>
+            <TabsContent value="body" className="min-h-0 flex-1 overflow-hidden" keepMounted>
                 <BodyEditor
                     body={activeRequest.body}
                     onChange={(body: RequestBody) => setActiveRequest({ body })}
@@ -100,21 +214,16 @@ export default function RequestTabs() {
                 />
             </TabsContent>
 
-            <TabsContent value="pre-request" className="min-h-0 flex-1 overflow-auto" keepMounted>
-                <ScriptEditor
-                    docVariant="pre"
-                    value={activeRequest.scripts?.preRequest ?? ''}
-                    onChange={(v) => setActiveRequest({ scripts: { ...activeRequest.scripts, preRequest: v } })}
-                    label={t('request.scriptPreLabel')}
-                />
-            </TabsContent>
-
-            <TabsContent value="post-response" className="min-h-0 flex-1 overflow-auto" keepMounted>
-                <ScriptEditor
-                    docVariant="post"
-                    value={activeRequest.scripts?.postResponse ?? ''}
-                    onChange={(v) => setActiveRequest({ scripts: { ...activeRequest.scripts, postResponse: v } })}
-                    label={t('request.scriptPostLabel')}
+            <TabsContent value="scripts" className="min-h-0 flex-1 overflow-hidden" keepMounted>
+                <ScriptsPanel
+                    preRequest={activeRequest.scripts?.preRequest ?? ''}
+                    postResponse={activeRequest.scripts?.postResponse ?? ''}
+                    onPreChange={(v) =>
+                        setActiveRequest({ scripts: { ...activeRequest.scripts, preRequest: v } })
+                    }
+                    onPostChange={(v) =>
+                        setActiveRequest({ scripts: { ...activeRequest.scripts, postResponse: v } })
+                    }
                 />
             </TabsContent>
         </Tabs>

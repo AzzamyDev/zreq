@@ -5,9 +5,9 @@ import { json } from '@codemirror/lang-json'
 import { indentUnit } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { indentationMarkers } from '@replit/codemirror-indentation-markers'
+import { JSON_INDENT, jsonEditorIndentExtensions, jsonEditorViewChrome } from '../../lib/json-codemirror-setup'
 import { Braces, ChevronDown, Code2, FileCode2, FileText, Hash, SquareCode } from 'lucide-react'
-import { appCodeMirrorChromeTheme, appJsonSyntaxHighlight, jsoncCommentDecorations } from '../../lib/app-codemirror-theme'
+import { appCodeMirrorChromeTheme, appJsonSyntaxHighlight } from '../../lib/app-codemirror-theme'
 import { Button } from '../ui/button'
 import {
     DropdownMenu,
@@ -28,12 +28,16 @@ interface ResponseBodyProps {
     contentType?: string
 }
 
+function prettyPrintJson(body: string): string {
+    return JSON.stringify(JSON.parse(body), null, JSON_INDENT)
+}
+
 function tryPrettyJson(body: string): string | null {
     const t = body.trim()
     if (!t) return null
     if (!(t.startsWith('{') || t.startsWith('['))) return null
     try {
-        return JSON.stringify(JSON.parse(body), null, '\t')
+        return prettyPrintJson(body)
     } catch {
         return null
     }
@@ -81,7 +85,7 @@ function buildSourceText(format: ResponseBodyFormat, body: string, contentType?:
     if (format === 'json') {
         if (contentType?.toLowerCase().includes('json')) {
             try {
-                return JSON.stringify(JSON.parse(body), null, '\t')
+                return prettyPrintJson(body)
             } catch {
                 /* fall through */
             }
@@ -107,48 +111,26 @@ export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
 
     const sourceText = useMemo(() => buildSourceText(format, body, contentType), [format, body, contentType])
 
-    const responseJsonChrome = useMemo(
-        () =>
-            EditorView.theme({
-                '.cm-content': { paddingTop: '0', paddingBottom: '0' },
-                '.cm-lineNumbers .cm-gutterElement': {
-                    minWidth: '2.25rem',
-                    padding: '0 6px 0 4px',
-                },
-            }),
-        [],
-    )
-
     const jsonExtensions = useMemo(
         () => [
             appCodeMirrorChromeTheme,
-            responseJsonChrome,
-            EditorState.tabSize.of(2),
-            indentUnit.of('\t'),
+            jsonEditorViewChrome,
+            ...jsonEditorIndentExtensions,
             json(),
             appJsonSyntaxHighlight,
-            ...jsoncCommentDecorations,
-            EditorView.lineWrapping,
-            indentationMarkers({
-                highlightActiveBlock: false,
-                colors: {
-                    dark: 'color-mix(in srgb, var(--border) 75%, transparent)',
-                    light: 'color-mix(in srgb, var(--border) 75%, transparent)',
-                },
-            }),
         ],
-        [responseJsonChrome],
+        [],
     )
 
     const plainExtensions = useMemo(
         () => [
             appCodeMirrorChromeTheme,
-            responseJsonChrome,
-            EditorState.tabSize.of(2),
-            indentUnit.of(' '),
+            jsonEditorViewChrome,
+            EditorState.tabSize.of(4),
+            indentUnit.of(JSON_INDENT),
             EditorView.lineWrapping,
         ],
-        [responseJsonChrome],
+        [],
     )
 
     const copyTarget = useMemo(() => {
@@ -307,6 +289,7 @@ export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
                 ) : showCodeMirror ? (
                     <div className="h-full min-h-0 overflow-hidden [&_.cm-editor]:flex [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-col [&_.cm-scroller]:min-h-0 [&_.cm-scroller]:flex-1">
                         <CodeMirror
+                            key={`${format}-${body.length}`}
                             value={sourceText}
                             theme="none"
                             height="100%"
@@ -319,7 +302,7 @@ export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
                                 dropCursor: false,
                                 allowMultipleSelections: false,
                             }}
-                            className="h-full min-h-0 text-xs [&_.cm-editor]:text-xs [&_.cm-editor]:rounded-none [&_.cm-scroller]:font-mono"
+                            className="json-body-cm h-full min-h-0 text-xs [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:text-xs [&_.cm-editor]:rounded-none [&_.cm-scroller]:font-mono"
                         />
                     </div>
                 ) : null}
