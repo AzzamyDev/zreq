@@ -30,7 +30,10 @@ const DrawerOverlay = React.forwardRef<
   <Vaul.Overlay
     ref={ref}
     data-slot="drawer-overlay"
-    className={cn("fixed inset-0 z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-xs", className)}
+    className={cn(
+      "fixed inset-0 z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-xs data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0",
+      className
+    )}
     {...props}
   />
 ))

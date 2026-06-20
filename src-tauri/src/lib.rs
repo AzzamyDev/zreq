@@ -31,14 +31,45 @@ pub fn run() {
             ws_disconnect,
         ])
         .setup(|app| {
+            use tauri::{LogicalSize, Manager};
+
+            if let Some(window) = app.get_webview_window("main") {
+                let main_config = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|w| w.label == "main")
+                    .or_else(|| app.config().app.windows.first());
+
+                if let Some(win_config) = main_config {
+                    if let (Some(min_width), Some(min_height)) =
+                        (win_config.min_width, win_config.min_height)
+                    {
+                        window.set_min_size(Some(LogicalSize::new(min_width, min_height)))?;
+                    }
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    let win = window.clone();
+                    window.on_window_event(move |event| {
+                        match event {
+                            tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::ThemeChanged(_)
+                            | tauri::WindowEvent::Focused(true) => {
+                                let _ = win.set_title_bar_style(tauri::TitleBarStyle::Overlay);
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+            }
+
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 app.deep_link().register_all()?;
-            }
-            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-            {
-                let _ = app;
             }
             Ok(())
         })

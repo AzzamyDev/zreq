@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Minus, Square, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isMacOS } from '@/lib/platform'
 import { useIsTauri } from '@/hooks/useIsTauri'
 
 function RestoreIcon({ className }: { className?: string }) {
@@ -54,13 +55,14 @@ export default function WindowControls({ className }: WindowControlsProps) {
         []
     )
 
-    if (!isTauri) return null
+    if (!isTauri || isMacOS()) return null
 
     const btn =
         'inline-flex h-12 w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground'
 
     return (
         <div
+            data-tauri-no-drag
             className={cn(
                 'flex shrink-0 items-stretch border-l border-border/70',
                 className
@@ -68,6 +70,7 @@ export default function WindowControls({ className }: WindowControlsProps) {
         >
             <button
                 type="button"
+                data-tauri-no-drag
                 className={btn}
                 title={t('window.minimize')}
                 aria-label={t('window.minimize')}
@@ -77,6 +80,7 @@ export default function WindowControls({ className }: WindowControlsProps) {
             </button>
             <button
                 type="button"
+                data-tauri-no-drag
                 className={btn}
                 title={maximized ? t('window.restore') : t('window.maximize')}
                 aria-label={maximized ? t('window.restore') : t('window.maximize')}
@@ -90,6 +94,7 @@ export default function WindowControls({ className }: WindowControlsProps) {
             </button>
             <button
                 type="button"
+                data-tauri-no-drag
                 className={cn(
                     btn,
                     'hover:bg-destructive hover:text-destructive-foreground'

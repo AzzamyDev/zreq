@@ -649,7 +649,7 @@ function VarTemplateField({
                                     else varChipAnchorRefs.current.delete(i)
                                 }}
                                 className={cn(
-                                    'inline-flex max-w-[min(100%,220px)] shrink-0 items-center overflow-hidden rounded px-0.5 py-px font-mono text-xs leading-none outline-none focus-within:ring-1',
+                                    'inline-flex max-w-[min(100%,220px)] shrink-0 self-center items-center overflow-hidden rounded px-0.5 py-px font-mono text-xs leading-none outline-none focus-within:ring-1',
                                     resolved
                                         ? 'border border-dashed border-[color-mix(in_srgb,var(--dracula-orange)_55%,transparent)] bg-[color-mix(in_srgb,#ffb86c_14%,#282a36)] focus-within:ring-[var(--dracula-orange)]/25'
                                         : 'border border-dashed border-[color-mix(in_srgb,var(--dracula-red)_70%,transparent)] bg-[color-mix(in_srgb,#ff5555_16%,#282a36)] focus-within:ring-[var(--dracula-red)]/30',
@@ -670,7 +670,7 @@ function VarTemplateField({
                                     scheduleHoverClose()
                                 }}
                             >
-                                <div className="inline-flex min-w-0 flex-1 items-stretch">
+                                <div className="inline-flex min-w-0 flex-1 items-center">
                                     <span
                                         className={cn(
                                             'pointer-events-none select-none',
@@ -883,7 +883,7 @@ function VarTemplateField({
                                 inputOnKeyDown?.(e)
                             }}
                             className={cn(
-                                'box-border bg-transparent py-0 pl-0 pr-0 font-mono text-xs leading-normal text-foreground caret-foreground outline-none focus:ring-0',
+                                'box-border self-center bg-transparent py-0 pl-0 pr-0 font-mono text-xs leading-none text-foreground caret-foreground outline-none focus:ring-0',
                                 !wrap && 'min-h-0',
                                 wrap && 'min-h-6 py-0.5',
                                 growFill && 'min-w-[72px] flex-1 basis-0',

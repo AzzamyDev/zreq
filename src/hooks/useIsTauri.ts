@@ -1,20 +1,6 @@
-import { useEffect, useState } from 'react'
+import { isTauri as checkIsTauri } from '@tauri-apps/api/core'
 
-let cached: boolean | null = null
-
+/** Sync — jangan async, layout macOS harus benar dari frame pertama. */
 export function useIsTauri(): boolean {
-    const [isTauri, setIsTauri] = useState(cached ?? false)
-
-    useEffect(() => {
-        if (cached !== null) {
-            setIsTauri(cached)
-            return
-        }
-        void import('@tauri-apps/api/core').then(({ isTauri: check }) => {
-            cached = check()
-            setIsTauri(cached)
-        })
-    }, [])
-
-    return isTauri
+    return checkIsTauri()
 }

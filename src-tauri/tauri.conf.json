@@ -13,11 +13,11 @@
     "windows": [
       {
         "title": "ZReq",
+        "label": "main",
         "width": 1280,
         "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
-        "decorations": false
+        "minWidth": 1024,
+        "minHeight": 660
       }
     ],
     "security": {

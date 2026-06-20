@@ -273,7 +273,8 @@ function ensureCmTooltipHost(): HTMLElement | undefined {
         el.setAttribute('aria-hidden', 'true')
         Object.assign(el.style, {
             position: 'fixed',
-            inset: '0',
+            top: '0',
+            left: '0',
             width: '0',
             height: '0',
             margin: '0',

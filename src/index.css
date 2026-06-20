@@ -270,6 +270,11 @@ body {
     overflow: hidden;
 }
 
+/* macOS overlay title bar — visual only; drag via native overlay. */
+.macos-window-chrome {
+    user-select: none;
+}
+
 /* Manage Environments dialog — clip corners cleanly in WebView2 */
 .env-manager-dialog {
     overflow: hidden;
