@@ -439,7 +439,13 @@
     "formatHex": "Hex",
     "formatBase64": "Base64",
     "bodyPrettyTab": "Pretty",
-    "bodyPreviewTab": "Preview"
+    "bodyPreviewTab": "Preview",
+    "saveResponse": "Save",
+    "responseSaved": "Saved!",
+    "savedResponses": "Saved",
+    "noSavedResponses": "No saved responses yet.",
+    "loadSavedResponse": "Load",
+    "deleteSavedResponse": "Delete"
   },
   "vars": {
     "sourceEnvironment": "Environment",

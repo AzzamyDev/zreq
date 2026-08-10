@@ -6,7 +6,7 @@ import { indentUnit } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { JSON_INDENT, jsonEditorIndentExtensions, jsonEditorViewChrome } from '../../lib/json-codemirror-setup'
-import { Braces, ChevronDown, Code2, FileCode2, FileText, Hash, SquareCode } from 'lucide-react'
+import { BookmarkPlus, Braces, ChevronDown, Code2, FileCode2, FileText, Hash, SquareCode } from 'lucide-react'
 import { appCodeMirrorChromeTheme, appJsonSyntaxHighlight } from '../../lib/app-codemirror-theme'
 import { Button } from '../ui/button'
 import {
@@ -26,6 +26,7 @@ type ResponseBodyFormat = 'json' | 'xml' | 'html' | 'javascript' | 'raw' | 'hex'
 interface ResponseBodyProps {
     body: string
     contentType?: string
+    onSaveResponse?: () => void
 }
 
 function prettyPrintJson(body: string): string {
@@ -97,11 +98,12 @@ function buildSourceText(format: ResponseBodyFormat, body: string, contentType?:
     return body
 }
 
-export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
+export default function ResponseBody({ body, contentType, onSaveResponse }: ResponseBodyProps) {
     const { t } = useTranslation()
     const [format, setFormat] = useState<ResponseBodyFormat>(() => inferResponseFormat(contentType, body))
     const [htmlView, setHtmlView] = useState<'source' | 'preview'>('source')
     const [copied, setCopied] = useState(false)
+    const [saved, setSaved] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
     useEffect(() => {
@@ -146,6 +148,13 @@ export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
         } catch {
             /* ignore */
         }
+    }
+
+    const handleSave = () => {
+        if (!onSaveResponse) return
+        onSaveResponse()
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
     }
 
     const empty = !body
@@ -262,11 +271,26 @@ export default function ResponseBody({ body, contentType }: ResponseBodyProps) {
                     </div>
                 )}
 
+                {onSaveResponse && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto h-8 shrink-0 gap-1.5 border-border bg-card px-2 text-xs"
+                        onClick={handleSave}
+                        disabled={empty}
+                        title={t('response.saveResponse')}
+                    >
+                        <BookmarkPlus className="size-3.5" aria-hidden />
+                        {saved ? t('response.responseSaved') : t('response.saveResponse')}
+                    </Button>
+                )}
+
                 <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="ml-auto h-8 shrink-0 border-border bg-card px-2 text-xs"
+                    className={cn('h-8 shrink-0 border-border bg-card px-2 text-xs', !onSaveResponse && 'ml-auto')}
                     onClick={() => void handleCopy()}
                     disabled={empty}
                 >

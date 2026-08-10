@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../store'
 import { METHOD_TEXT_CLASS, requestBadgeLabel } from '../../lib/httpMethodTheme'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, FileText } from 'lucide-react'
 import {
     ContextMenu,
     ContextMenuContent,
@@ -234,7 +234,7 @@ export default function RequestTabBar() {
                 onAfterSave={handleAfterNewSave}
             />
 
-            <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-background scrollbar-none">
+            <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-background scrollbar-none no-scrollbar">
                 {tabs.map((tab) => (
                     <ContextMenu key={tab.id}>
                         <ContextMenuTrigger>
@@ -254,11 +254,17 @@ export default function RequestTabBar() {
                                         : 'border-b-2 border-b-transparent text-muted-foreground hover:bg-muted/20'
                                 }`}
                             >
-                                <span
-                                    className={`shrink-0 text-[10px] font-bold ${METHOD_TEXT_CLASS[tab.method] ?? METHOD_TEXT_CLASS[requestBadgeLabel(tab.request)] ?? 'text-muted-foreground'}`}
-                                >
-                                    {tab.method}
-                                </span>
+                                {tab.request.savedResponseId ? (
+                                    <span className="shrink-0" title={t('response.savedResponses')}>
+                                        <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                                    </span>
+                                ) : (
+                                    <span
+                                        className={`shrink-0 text-[10px] font-bold ${METHOD_TEXT_CLASS[tab.method] ?? METHOD_TEXT_CLASS[requestBadgeLabel(tab.request)] ?? 'text-muted-foreground'}`}
+                                    >
+                                        {tab.method}
+                                    </span>
+                                )}
                                 <span className="flex-1 truncate">{tab.name}</span>
                                 {tab.isDirty && (
                                     <span

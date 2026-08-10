@@ -10,6 +10,7 @@ import {
     Plus,
     MoreHorizontal,
     Radio,
+    FileText,
 } from 'lucide-react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -29,7 +30,8 @@ import { useCollectionFlatVisibleIds } from './CollectionSelectionContext'
 import RenameDialog from './RenameDialog'
 import NewFolderDialog from './NewFolderDialog'
 import FolderSettingsDialog from './FolderSettingsDialog'
-import type { RequestItem, Folder as FolderType } from '../../types'
+import type { RequestItem, Folder as FolderType, SavedResponse } from '../../types'
+import { getStatusColor } from '../response/ResponseStats'
 import { METHOD_BG_CLASS, METHOD_TEXT_CLASS, requestBadgeLabel } from '../../lib/httpMethodTheme'
 import { inferProtocolFromUrl } from '../../lib/persist-request'
 import { isRangeSelectModifier, isToggleSelectModifier } from '../../lib/modifier-keys'
@@ -93,11 +95,10 @@ function TreeRowCheckbox({
             role="checkbox"
             aria-checked={checked}
             onClick={onToggle}
-            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-all ${
-                checked
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-muted-foreground/40 bg-transparent hover:border-primary/60'
-            } ${visible || checked ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'}`}
+            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-all ${checked
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-muted-foreground/40 bg-transparent hover:border-primary/60'
+                } ${visible || checked ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'}`}
         >
             {checked ? (
                 <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden>
@@ -528,6 +529,159 @@ function FolderTreeNode({
     )
 }
 
+function SavedResponseRow({
+    collectionId,
+    reqItem,
+    saved,
+    depth,
+    ancestorNames,
+}: {
+    collectionId: number
+    reqItem: RequestItem
+    saved: SavedResponse
+    depth: number
+    ancestorNames: string[]
+}) {
+    const { t } = useTranslation()
+    const [renameOpen, setRenameOpen] = useState(false)
+    const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+    const moreMenuRef = useRef<HTMLDivElement>(null)
+    const { persistRequestItem } = useCollection()
+    const openSavedResponseTab = useAppStore((s) => s.openSavedResponseTab)
+    const activeRequest = useAppStore((s) => s.activeRequest)
+    const isSelected = activeRequest.itemId === reqItem.id && activeRequest.savedResponseId === saved.id
+    /** Extra offset beyond normal depth-nesting so this reads as nested under the request row. */
+    const indent = depth * 12 + 20
+
+    useEffect(() => {
+        if (!moreMenuOpen) return
+        const handler = (e: MouseEvent) => {
+            if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+                setMoreMenuOpen(false)
+            }
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [moreMenuOpen])
+
+    const persistWith = async (next: SavedResponse[]) => {
+        await persistRequestItem(collectionId, reqItem.id, {
+            name: reqItem.name,
+            method: reqItem.method,
+            url: reqItem.url,
+            headers: reqItem.headers,
+            params: reqItem.params,
+            body: reqItem.body,
+            auth: reqItem.auth,
+            scripts: reqItem.scripts,
+            protocol: reqItem.protocol,
+            subprotocols: reqItem.subprotocols,
+            savedMessages: reqItem.savedMessages,
+            messageTemplate: reqItem.messageTemplate,
+            savedResponses: next,
+        })
+        const live = useAppStore.getState().activeRequest
+        if (live.itemId === reqItem.id) {
+            // If the tab currently open is this exact saved response, keep its displayed name
+            // (Input/tab title) AND breadcrumb's last segment in sync too.
+            const stillOpen = live.savedResponseId ? next.find((s) => s.id === live.savedResponseId) : undefined
+            useAppStore.getState().setActiveRequest({
+                savedResponses: next,
+                ...(stillOpen?.name ? { name: stillOpen.name } : {}),
+            })
+            if (stillOpen?.name) {
+                const bc = useAppStore.getState().breadcrumb
+                if (bc.length > 0) {
+                    useAppStore.getState().setBreadcrumb([...bc.slice(0, -1), stillOpen.name])
+                }
+            }
+        }
+    }
+
+    const handleLoad = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        const savedLabel = saved.name ?? new Date(saved.savedAt).toLocaleString()
+        const fullPath = [...ancestorNames, reqItem.name, savedLabel]
+        openSavedResponseTab(reqItem, saved, fullPath, { collectionId })
+    }
+
+    const handleRename = async (newName: string) => {
+        const next = (reqItem.savedResponses ?? []).map((s) => (s.id === saved.id ? { ...s, name: newName } : s))
+        await persistWith(next)
+    }
+
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.stopPropagation()
+        const next = (reqItem.savedResponses ?? []).filter((s) => s.id !== saved.id)
+        await persistWith(next)
+    }
+
+    return (
+        <div
+            className={`group mb-1 mx-1 flex cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 text-xs hover:bg-[var(--sidebar-row-hover)] ${isSelected ? 'bg-[var(--sidebar-row-selected)]' : ''}`}
+            style={{ paddingLeft: `${18 + indent}px` }}
+            onClick={handleLoad}
+            title={saved.name}
+        >
+            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span
+                className={`shrink-0 rounded px-1 py-0.5 font-mono text-[9px] font-semibold ${getStatusColor(saved.response.status)}`}
+            >
+                {saved.response.status}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {saved.name ?? new Date(saved.savedAt).toLocaleString()}
+            </span>
+            <div
+                className={`flex shrink-0 items-center opacity-0 group-hover:opacity-100 ${moreMenuOpen ? 'opacity-100' : ''}`}
+            >
+                <div className="relative" ref={moreMenuRef}>
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setMoreMenuOpen((v) => !v)
+                        }}
+                        className="cursor-pointer rounded p-0.5 hover:bg-[var(--sidebar-row-hover)]"
+                        title={t('collection.moreActions')}
+                    >
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                    {moreMenuOpen && (
+                        <InlineMenu>
+                            <MenuButton
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setMoreMenuOpen(false)
+                                    setRenameOpen(true)
+                                }}
+                            >
+                                {t('common.rename')}
+                            </MenuButton>
+                            <MenuButton
+                                destructive
+                                onClick={(e) => {
+                                    setMoreMenuOpen(false)
+                                    void handleDelete(e)
+                                }}
+                            >
+                                {t('response.deleteSavedResponse')}
+                            </MenuButton>
+                        </InlineMenu>
+                    )}
+                </div>
+            </div>
+            <RenameDialog
+                open={renameOpen}
+                onClose={() => setRenameOpen(false)}
+                onRename={(name) => void handleRename(name)}
+                initialName={saved.name ?? ''}
+                title={t('common.rename')}
+            />
+        </div>
+    )
+}
+
 function RequestTreeNode({
     item: reqItem,
     collectionId,
@@ -541,7 +695,7 @@ function RequestTreeNode({
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
     const { deleteItem, renameItem, duplicateItem } = useCollection()
-    const { loadRequestItem, selectedItemId } = useAppStore()
+    const { loadRequestItem, activeRequest } = useAppStore()
     const {
         isMultiSelected,
         selectionActive,
@@ -562,8 +716,12 @@ function RequestTreeNode({
         isOver,
     } = useSortable({ id: reqItem.id })
 
+    const [savedExpanded, setSavedExpanded] = useState(false)
+    const savedResponses = reqItem.savedResponses ?? []
+    const hasSaved = savedResponses.length > 0
+
     const indent = depth * 12
-    const isSelected = selectedItemId === reqItem.id
+    const isSelected = activeRequest.itemId === reqItem.id && !activeRequest.savedResponseId
     const isWs = inferProtocolFromUrl(reqItem.url ?? '', reqItem.protocol) === 'ws'
     const badge = requestBadgeLabel(reqItem)
     const methodColor = METHOD_TEXT_CLASS[badge] ?? 'text-foreground'
@@ -610,7 +768,7 @@ function RequestTreeNode({
                         ref={setNodeRef}
                         {...attributes}
                         onClick={handleRowClick}
-                        className={`group relative mx-1 flex select-none items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen ? 'z-100 isolate' : isDragging ? 'z-10' : 'z-0'
+                        className={`group relative mb-1 mx-1 flex select-none items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen ? 'z-100 isolate' : isDragging ? 'z-10' : 'z-0'
                             } ${(isSelected || isMultiSelected) && !isOver ? 'bg-[var(--sidebar-row-selected)]' : ''} ${isMultiSelected && !isOver ? 'ring-1 ring-primary/25' : ''} ${isOver ? SIDEBAR_DROP_ACTIVE_ROW : ''}`}
                         style={rowStyle}
                     >
@@ -619,6 +777,22 @@ function RequestTreeNode({
                             visible={selectionActive}
                             onToggle={toggleCheckbox}
                         />
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                if (!hasSaved) return
+                                e.stopPropagation()
+                                setSavedExpanded((v) => !v)
+                            }}
+                            className={`shrink-0 rounded p-0.5 text-muted-foreground ${hasSaved ? 'cursor-pointer hover:bg-[var(--sidebar-row-hover)]' : 'invisible pointer-events-none'}`}
+                            title={hasSaved ? t('response.savedResponses') : undefined}
+                        >
+                            {savedExpanded ? (
+                                <ChevronDown className="h-3 w-3" />
+                            ) : (
+                                <ChevronRight className="h-3 w-3" />
+                            )}
+                        </button>
                         <div className="flex min-w-0 flex-1 items-center gap-1.5 pointer-events-none">
                             {isWs ? (
                                 <Radio className="h-3.5 w-3.5 shrink-0 text-[var(--dracula-cyan)]" />
@@ -711,6 +885,21 @@ function RequestTreeNode({
                     </ContextMenuItem>
                 </ContextMenuContent>
             </ContextMenu>
+
+            {savedExpanded && hasSaved && (
+                <div className="flex flex-col space-y-1">
+                    {[...savedResponses].reverse().map((sr) => (
+                        <SavedResponseRow
+                            key={sr.id}
+                            collectionId={collectionId}
+                            reqItem={reqItem}
+                            saved={sr}
+                            depth={depth + 1}
+                            ancestorNames={ancestorNames}
+                        />
+                    ))}
+                </div>
+            )}
 
             <RenameDialog
                 open={renameOpen}

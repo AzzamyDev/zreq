@@ -76,6 +76,7 @@ export type RequestItem = {
     subprotocols?: string
     savedMessages?: WsSavedMessage[]
     messageTemplate?: string
+    savedResponses?: SavedResponse[]
     scripts?: {
         preRequest?: string
         postResponse?: string
@@ -149,6 +150,22 @@ export type HttpResponse = {
     sizeBytes: number
 }
 
+export type SavedResponse = {
+    id: string
+    name?: string
+    response: HttpResponse
+    /** Full request state at the moment of saving — the loaded tab replays this, not the (possibly since-edited) live request. */
+    requestSnapshot: {
+        method: HttpMethod
+        url: string
+        headers: KV[]
+        params: KV[]
+        body: RequestBody
+        auth: AuthConfig
+    }
+    savedAt: number
+}
+
 export type ActiveRequest = {
     method: HttpMethod
     url: string
@@ -161,9 +178,12 @@ export type ActiveRequest = {
     subprotocols?: string
     savedMessages?: WsSavedMessage[]
     messageTemplate?: string
+    savedResponses?: SavedResponse[]
     collectionId?: number
     itemId?: string
     folderId?: string
+    /** Set when this tab is a detached view of one saved response (see openSavedResponseTab). */
+    savedResponseId?: string
     scripts?: {
         preRequest?: string
         postResponse?: string

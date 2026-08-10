@@ -1,14 +1,17 @@
 import { useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
+import { nanoid } from 'nanoid'
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import { useAppStore } from '../../store'
+import { useCollection } from '../../hooks/useCollection'
 import { Button } from '../ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import ResponseStats from './ResponseStats'
 import ResponseBody from './ResponseBody'
 import ResponseHeaders from './ResponseHeaders'
 import ResponseCookies from './ResponseCookies'
+import SavedResponses from './SavedResponses'
 import ConsolePanel from './ConsolePanel'
 import WsMessagePanel from './WsMessagePanel'
 import WsConnectionStats from './WsConnectionStats'
@@ -39,10 +42,36 @@ type ResponsePanelProps = {
 
 export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) {
     const { t } = useTranslation()
-    const [activeTab, setActiveTab] = useState<string>('body')
     const [panelCollapsed, setPanelCollapsed] = useState(false)
-    const { response, isLoading, activeRequest, activeTabId, tabs } = useAppStore()
+    const { response, isLoading, activeRequest, activeTabId, tabs, responseViewTab: activeTab } = useAppStore()
     const consoleLogs = useAppStore((s) => s.consoleLogs)
+    const setActiveRequest = useAppStore((s) => s.setActiveRequest)
+    const setActiveTab = useAppStore((s) => s.setResponseViewTab)
+    const { saveResponseSnapshot } = useCollection()
+    const savedResponses = activeRequest.savedResponses ?? []
+
+    const handleSaveResponse = () => {
+        if (!response) return
+        const next: NonNullable<typeof activeRequest.savedResponses>[number] = {
+            id: nanoid(),
+            name: `${activeRequest.method} · ${new Date().toLocaleTimeString()}`,
+            response: structuredClone(response),
+            requestSnapshot: structuredClone({
+                method: activeRequest.method,
+                url: activeRequest.url,
+                headers: activeRequest.headers,
+                params: activeRequest.params,
+                body: activeRequest.body,
+                auth: activeRequest.auth,
+            }),
+            savedAt: Date.now(),
+        }
+        if (activeRequest.collectionId != null && activeRequest.itemId) {
+            void saveResponseSnapshot(activeRequest.collectionId, activeRequest.itemId, next)
+        } else {
+            setActiveRequest({ savedResponses: [...savedResponses, next] })
+        }
+    }
 
     const protocol = activeRequest.protocol ?? 'http'
     const isWs = protocol === 'ws'
@@ -180,13 +209,21 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                                     </span>
                                 )}
                             </TabsTrigger>
+                            <TabsTrigger className="w-[120px]" value="saved">
+                                {t('response.savedResponses')}
+                                {savedResponses.length > 0 && (
+                                    <span className="ml-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                        {savedResponses.length}
+                                    </span>
+                                )}
+                            </TabsTrigger>
                         </TabsList>
                     </div>
                     <TabsContent value="body" className="flex min-h-0 flex-1 flex-col overflow-hidden">
                         {isLoading && !response ? (
                             <Spinner />
                         ) : response ? (
-                            <ResponseBody body={response.body} contentType={contentType} />
+                            <ResponseBody body={response.body} contentType={contentType} onSaveResponse={handleSaveResponse} />
                         ) : (
                             emptyHint
                         )}
@@ -199,6 +236,9 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                     </TabsContent>
                     <TabsContent value="console" className="min-h-0 flex-1 overflow-hidden">
                         <ConsolePanel />
+                    </TabsContent>
+                    <TabsContent value="saved" className="min-h-0 flex-1 overflow-hidden">
+                        <SavedResponses />
                     </TabsContent>
                 </Tabs>
             )}

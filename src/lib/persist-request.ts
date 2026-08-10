@@ -11,6 +11,7 @@ export function buildPersistPayload(ar: ActiveRequest) {
         auth: ar.auth,
         scripts: ar.scripts,
         protocol: ar.protocol ?? 'http',
+        savedResponses: ar.savedResponses,
     }
     if ((ar.protocol ?? 'http') === 'ws') {
         return {

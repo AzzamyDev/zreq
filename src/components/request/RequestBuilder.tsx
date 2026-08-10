@@ -18,7 +18,7 @@ export default function RequestBuilder() {
     useAutosave()
     const { sendRequest } = useRequest()
     const ws = useWebSocket()
-    const { persistRequestItem } = useCollection()
+    const { persistRequestItem, updateSavedResponse } = useCollection()
     const isLoading = useAppStore((s) => s.isLoading)
     const breadcrumb = useAppStore((s) => s.breadcrumb)
     const tabs = useAppStore((s) => s.tabs)
@@ -33,6 +33,34 @@ export default function RequestBuilder() {
     const handleSave = useCallback(async () => {
         if (useAppStore.getState().tabs.length === 0) return
         const ar = useAppStore.getState().activeRequest
+
+        // Viewing a saved response: "Save" overwrites that same entry with what's currently open
+        // in this tab (response + request fields), not a new entry and not the live request.
+        if (ar.savedResponseId) {
+            const currentResponse = useAppStore.getState().response
+            if (!currentResponse || ar.collectionId == null || !ar.itemId) return
+            setSaving(true)
+            try {
+                await updateSavedResponse(ar.collectionId, ar.itemId, ar.savedResponseId, {
+                    name: ar.name,
+                    response: structuredClone(currentResponse),
+                    requestSnapshot: structuredClone({
+                        method: ar.method,
+                        url: ar.url,
+                        headers: ar.headers,
+                        params: ar.params,
+                        body: ar.body,
+                        auth: ar.auth,
+                    }),
+                    savedAt: Date.now(),
+                })
+                markActiveTabClean()
+            } finally {
+                setSaving(false)
+            }
+            return
+        }
+
         if (ar.collectionId != null && ar.itemId) {
             setSaving(true)
             try {
@@ -44,7 +72,7 @@ export default function RequestBuilder() {
             return
         }
         setSaveDialogOpen(true)
-    }, [persistRequestItem, markActiveTabClean])
+    }, [persistRequestItem, updateSavedResponse, markActiveTabClean])
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -104,10 +132,18 @@ export default function RequestBuilder() {
                                 variant="outline"
                                 className="h-9 shrink-0 gap-2 px-4"
                                 disabled={saving}
-                                title={t('request.saveShortcutTitle')}
+                                title={
+                                    activeRequest.savedResponseId
+                                        ? t('response.saveResponse')
+                                        : t('request.saveShortcutTitle')
+                                }
                                 onClick={() => void handleSave()}
                             >
-                                {saving ? t('common.saving') : t('common.save')}
+                                {saving
+                                    ? t('common.saving')
+                                    : activeRequest.savedResponseId
+                                        ? t('response.saveResponse')
+                                        : t('common.save')}
                             </Button>
                         </div>
                         <div className={`px-3 pt-0 ${isWs ? 'pb-3' : 'pb-2.5'}`}>

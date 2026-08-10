@@ -7,6 +7,7 @@ import type {
     Environment,
     Folder,
     RequestItem,
+    SavedResponse,
     HttpResponse,
     ActiveRequest,
     ConsoleEntry,
@@ -256,12 +257,22 @@ interface AppState {
         breadcrumbPath?: string[],
         ctx?: { collectionId: number; folderId?: string }
     ) => void
+    /** Always opens a new, detached tab replaying a saved response's request snapshot (not the live item). */
+    openSavedResponseTab: (
+        item: Pick<RequestItem, 'id' | 'name' | 'scripts' | 'protocol' | 'subprotocols' | 'messageTemplate' | 'savedResponses'>,
+        saved: SavedResponse,
+        breadcrumbPath: string[],
+        ctx?: { collectionId: number }
+    ) => void
     resetActiveRequest: () => void
 
     response: HttpResponse | null
     isLoading: boolean
     setResponse: (r: HttpResponse | null) => void
     setLoading: (v: boolean) => void
+    /** Which response sub-tab (body/headers/…) is visible; forced to 'body' when opening a saved response. */
+    responseViewTab: string
+    setResponseViewTab: (v: string) => void
 
     setWsState: (tabId: string, state: WsConnectionState) => void
     appendWsFrame: (tabId: string, frame: WsFrame) => void
@@ -654,8 +665,11 @@ export const useAppStore = create<AppState>()(
                 const colId = ctx?.collectionId
                 const folderKey = ctx?.folderId ?? undefined
                 if (colId != null && item.id) {
+                    // Exclude detached saved-response tabs — they share itemId/collectionId with the
+                    // live request but must never be treated as "the same tab" as the request itself.
                     const dup = s.tabs.find(
                         (t) =>
+                            !t.request.savedResponseId &&
                             t.request.itemId === item.id &&
                             t.request.collectionId === colId &&
                             (t.request.folderId ?? undefined) === folderKey
@@ -696,6 +710,7 @@ export const useAppStore = create<AppState>()(
                     subprotocols: item.subprotocols,
                     savedMessages: item.savedMessages ? [...item.savedMessages] : [],
                     messageTemplate: item.messageTemplate,
+                    savedResponses: item.savedResponses ? [...item.savedResponses] : [],
                 })
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
                 if (cur) {
@@ -710,6 +725,56 @@ export const useAppStore = create<AppState>()(
                 s.isLoading = false
                 s.selectedItemId = item.id
                 if (breadcrumbPath) s.breadcrumb = breadcrumbPath
+            }),
+        openSavedResponseTab: (item, saved, breadcrumbPath, ctx) =>
+            set((s) => {
+                // Reuse an already-open tab for this exact saved response instead of duplicating it.
+                const dup = s.tabs.find(
+                    (t) => t.request.itemId === item.id && t.request.savedResponseId === saved.id
+                )
+                const cur = s.tabs.find((t) => t.id === s.activeTabId)
+                if (cur && cur !== dup) {
+                    cur.request = { ...s.activeRequest }
+                    cur.response = cloneHttpResponse(s.response)
+                }
+                // Detached snapshot: replays the request exactly as it was when saved, not the
+                // (possibly since-edited) live item. savedResponseId marks this tab as a saved-response
+                // view — autosave skips it, and "Save" overwrites this same entry (via updateSavedResponse,
+                // which always reads the live item's other fields) instead of the live request.
+                const snap = saved.requestSnapshot
+                const req: ActiveRequest = withNormalizedQuery({
+                    method: snap.method || 'GET',
+                    url: snap.url || '',
+                    headers: Array.isArray(snap.headers) ? snap.headers : [],
+                    params: Array.isArray(snap.params) ? snap.params : [],
+                    body: snap.body || { type: 'none', content: '' },
+                    auth: snap.auth ?? { type: 'none' },
+                    name: saved.name || `${item.name || 'Untitled Request'} (saved)`,
+                    itemId: item.id,
+                    collectionId: ctx?.collectionId,
+                    savedResponseId: saved.id,
+                    scripts: item.scripts,
+                    protocol: inferProtocolFromUrl(snap.url ?? '', item.protocol),
+                    subprotocols: item.subprotocols,
+                    savedMessages: [],
+                    messageTemplate: item.messageTemplate,
+                    savedResponses: item.savedResponses ? [...item.savedResponses] : [],
+                })
+                if (dup) {
+                    dup.request = req
+                    dup.response = cloneHttpResponse(saved.response)
+                    s.activeTabId = dup.id
+                } else {
+                    const id = nanoid()
+                    s.tabs.push(createRequestTab(id, req, { response: cloneHttpResponse(saved.response) }))
+                    s.activeTabId = id
+                }
+                s.activeRequest = req
+                s.response = cloneHttpResponse(saved.response)
+                s.isLoading = false
+                s.selectedItemId = null
+                s.breadcrumb = breadcrumbPath
+                s.responseViewTab = 'body'
             }),
         resetActiveRequest: () =>
             set((s) => {
@@ -741,6 +806,12 @@ export const useAppStore = create<AppState>()(
         setLoading: (v) =>
             set((s) => {
                 s.isLoading = v
+            }),
+
+        responseViewTab: 'body',
+        setResponseViewTab: (v) =>
+            set((s) => {
+                s.responseViewTab = v
             }),
 
         environments: [],

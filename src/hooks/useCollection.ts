@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useAppStore } from '../store'
 import { useAuthStore } from '../store/authStore'
 import { nanoid } from 'nanoid'
-import type { Collection } from '../types'
+import type { Collection, SavedResponse } from '../types'
 import * as snap from '@/lib/local-replica/snapshot-store'
 import {
     writeCollectionCreate,
@@ -223,6 +223,7 @@ export function useCollection() {
                 subprotocols?: string
                 savedMessages?: unknown[]
                 messageTemplate?: string
+                savedResponses?: unknown[]
             }
         ) => {
             const live = useAppStore.getState().collections
@@ -450,6 +451,65 @@ export function useCollection() {
         await reorderSiblingsMulti(collectionId, activeId, overId, [activeId])
     }, [reorderSiblingsMulti])
 
+    /** Replaces an item's savedResponses list, always reading the other fields off the live tree
+     * item (never the caller's activeRequest) so this is safe to call from a detached saved-response
+     * tab whose activeRequest holds an old snapshot, not the item's current data. */
+    const setSavedResponses = useCallback(
+        async (collectionId: number, itemId: string, next: SavedResponse[]) => {
+            const collection = useAppStore.getState().collections.find((c) => c.id === collectionId)
+            if (!collection) return
+            const item = findTreeItem(collection.items, itemId)
+            if (!item || item.type !== 'request') return
+            await persistRequestItem(collectionId, itemId, {
+                name: item.name,
+                method: item.method,
+                url: item.url,
+                headers: item.headers,
+                params: item.params,
+                body: item.body,
+                auth: item.auth,
+                scripts: item.scripts,
+                protocol: item.protocol,
+                subprotocols: item.subprotocols,
+                savedMessages: item.savedMessages,
+                messageTemplate: item.messageTemplate,
+                savedResponses: next,
+            })
+            if (useAppStore.getState().activeRequest.itemId === itemId) {
+                useAppStore.getState().setActiveRequest({ savedResponses: next })
+            }
+        },
+        [persistRequestItem]
+    )
+
+    /** Appends one new saved response snapshot to an item's list. */
+    const saveResponseSnapshot = useCallback(
+        async (collectionId: number, itemId: string, saved: SavedResponse) => {
+            const collection = useAppStore.getState().collections.find((c) => c.id === collectionId)
+            if (!collection) return
+            const item = findTreeItem(collection.items, itemId)
+            if (!item || item.type !== 'request') return
+            await setSavedResponses(collectionId, itemId, [...(item.savedResponses ?? []), saved])
+        },
+        [setSavedResponses]
+    )
+
+    /** Patches one existing saved response entry in place (used when re-saving from an already-open
+     * saved-response tab, so it overwrites that same entry instead of creating a new one). */
+    const updateSavedResponse = useCallback(
+        async (collectionId: number, itemId: string, savedResponseId: string, patch: Partial<SavedResponse>) => {
+            const collection = useAppStore.getState().collections.find((c) => c.id === collectionId)
+            if (!collection) return
+            const item = findTreeItem(collection.items, itemId)
+            if (!item || item.type !== 'request') return
+            const next = (item.savedResponses ?? []).map((s: SavedResponse) =>
+                s.id === savedResponseId ? { ...s, ...patch } : s
+            )
+            await setSavedResponses(collectionId, itemId, next)
+        },
+        [setSavedResponses]
+    )
+
     return {
         createCollection,
         saveRequestItem,
@@ -465,6 +525,9 @@ export function useCollection() {
         updateCollectionSettings,
         updateFolderSettings,
         persistRequestItem,
+        setSavedResponses,
+        saveResponseSnapshot,
+        updateSavedResponse,
         moveTreeItem,
         moveTreeItems,
         transferTreeItems,

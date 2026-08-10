@@ -27,6 +27,7 @@ export function useAutosave() {
     useEffect(() => {
         if (!readAutosaveEnabled()) return
         if (!activeRequest.collectionId || !activeRequest.itemId) return
+        if (activeRequest.savedResponseId) return
         if (Date.now() < skipUntil.current) return
 
         const cid = activeRequest.collectionId
@@ -55,6 +56,7 @@ export function useAutosave() {
         activeRequest.subprotocols,
         activeRequest.savedMessages,
         activeRequest.messageTemplate,
+        activeRequest.savedResponseId,
         persistRequestItem,
         selectedItemId,
     ])
