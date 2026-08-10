@@ -460,6 +460,11 @@ export function useCollection() {
             if (!collection) return
             const item = findTreeItem(collection.items, itemId)
             if (!item || item.type !== 'request') return
+            const removedIds = new Set(
+                (item.savedResponses ?? [])
+                    .map((s: SavedResponse) => s.id)
+                    .filter((id: string) => !next.some((s) => s.id === id))
+            )
             await persistRequestItem(collectionId, itemId, {
                 name: item.name,
                 method: item.method,
@@ -475,8 +480,22 @@ export function useCollection() {
                 messageTemplate: item.messageTemplate,
                 savedResponses: next,
             })
-            if (useAppStore.getState().activeRequest.itemId === itemId) {
-                useAppStore.getState().setActiveRequest({ savedResponses: next })
+            // Sync every open tab (not just the active one) so a stale copy on a backgrounded tab
+            // can never reintroduce a deleted entry when that tab regains focus or gets persisted.
+            useAppStore.getState().syncSavedResponsesForItem(itemId, next)
+            // Close any open tab viewing a saved response that just got removed — nothing left for it to show.
+            if (removedIds.size > 0) {
+                const orphaned = useAppStore
+                    .getState()
+                    .tabs.filter(
+                        (t) =>
+                            t.request.itemId === itemId &&
+                            t.request.savedResponseId != null &&
+                            removedIds.has(t.request.savedResponseId)
+                    )
+                for (const t of orphaned) {
+                    useAppStore.getState().closeTab(t.id, true)
+                }
             }
         },
         [persistRequestItem]

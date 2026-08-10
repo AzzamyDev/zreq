@@ -252,6 +252,9 @@ interface AppState {
 
     activeRequest: ActiveRequest
     setActiveRequest: (partial: Partial<ActiveRequest>) => void
+    /** Updates savedResponses on every open tab referencing this item (active or backgrounded) so a
+     * stale copy on a backgrounded tab can never "come back" when that tab regains focus/persists. */
+    syncSavedResponsesForItem: (itemId: string, next: SavedResponse[]) => void
     loadRequestItem: (
         item: RequestItem,
         breadcrumbPath?: string[],
@@ -657,6 +660,17 @@ export const useAppStore = create<AppState>()(
                             void disconnectWsSession(tab.id)
                         }
                         resetTabWsState(tab)
+                    }
+                }
+            }),
+        syncSavedResponsesForItem: (itemId, next) =>
+            set((s) => {
+                if (s.activeRequest.itemId === itemId) {
+                    s.activeRequest.savedResponses = next
+                }
+                for (const t of s.tabs) {
+                    if (t.request.itemId === itemId) {
+                        t.request.savedResponses = next
                     }
                 }
             }),

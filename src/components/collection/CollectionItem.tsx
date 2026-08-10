@@ -208,7 +208,7 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
                 <CollectionHeaderDropZone
                     collectionId={collection.id}
                     title={t('collection.dropIntoCollection')}
-                    className={`group relative flex items-center gap-1 rounded-sm mx-1 px-2 py-1.5 text-sm font-medium select-none hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen || addMenuOpen ? 'z-100 isolate' : 'z-0'}`}
+                    className={`group relative flex items-center gap-1 rounded-sm mb-1 mx-1 px-2 py-1.5 text-sm font-medium select-none hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen || addMenuOpen ? 'z-100 isolate' : 'z-0'}`}
                 >
                     <ContextMenuTrigger
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1"

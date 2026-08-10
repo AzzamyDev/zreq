@@ -546,7 +546,7 @@ function SavedResponseRow({
     const [renameOpen, setRenameOpen] = useState(false)
     const [moreMenuOpen, setMoreMenuOpen] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
-    const { persistRequestItem } = useCollection()
+    const { setSavedResponses } = useCollection()
     const openSavedResponseTab = useAppStore((s) => s.openSavedResponseTab)
     const activeRequest = useAppStore((s) => s.activeRequest)
     const isSelected = activeRequest.itemId === reqItem.id && activeRequest.savedResponseId === saved.id
@@ -565,31 +565,15 @@ function SavedResponseRow({
     }, [moreMenuOpen])
 
     const persistWith = async (next: SavedResponse[]) => {
-        await persistRequestItem(collectionId, reqItem.id, {
-            name: reqItem.name,
-            method: reqItem.method,
-            url: reqItem.url,
-            headers: reqItem.headers,
-            params: reqItem.params,
-            body: reqItem.body,
-            auth: reqItem.auth,
-            scripts: reqItem.scripts,
-            protocol: reqItem.protocol,
-            subprotocols: reqItem.subprotocols,
-            savedMessages: reqItem.savedMessages,
-            messageTemplate: reqItem.messageTemplate,
-            savedResponses: next,
-        })
+        // Routes through setSavedResponses so a removed entry also closes any tab viewing it.
+        await setSavedResponses(collectionId, reqItem.id, next)
         const live = useAppStore.getState().activeRequest
         if (live.itemId === reqItem.id) {
             // If the tab currently open is this exact saved response, keep its displayed name
             // (Input/tab title) AND breadcrumb's last segment in sync too.
             const stillOpen = live.savedResponseId ? next.find((s) => s.id === live.savedResponseId) : undefined
-            useAppStore.getState().setActiveRequest({
-                savedResponses: next,
-                ...(stillOpen?.name ? { name: stillOpen.name } : {}),
-            })
             if (stillOpen?.name) {
+                useAppStore.getState().setActiveRequest({ name: stillOpen.name })
                 const bc = useAppStore.getState().breadcrumb
                 if (bc.length > 0) {
                     useAppStore.getState().setBreadcrumb([...bc.slice(0, -1), stillOpen.name])
