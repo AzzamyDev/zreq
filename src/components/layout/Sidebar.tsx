@@ -88,7 +88,7 @@ export default function Sidebar() {
                 className="hidden"
                 onChange={handleImportFile}
             />
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1" viewportClassName="bg-sidebar">
                 <CollectionTree
                     openNew={openNew}
                     onNewDialogClose={() => setOpenNew(false)}

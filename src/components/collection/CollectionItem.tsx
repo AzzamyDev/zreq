@@ -72,7 +72,7 @@ function RootEndDropZone({ collectionId }: { collectionId: number }) {
     return (
         <div
             ref={setNodeRef}
-            className={`mx-1 min-h-5 shrink-0 rounded-sm transition-colors duration-150 ${isOver ? SIDEBAR_DROP_ACTIVE_STRIP : ''}`}
+            className={`mx-1 min-h-1 shrink-0 rounded-sm transition-colors duration-150 ${isOver ? SIDEBAR_DROP_ACTIVE_STRIP : ''}`}
             aria-hidden
         />
     )
