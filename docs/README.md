@@ -13,7 +13,7 @@ Selamat datang di dokumentasi **ZReq** — aplikasi desktop HTTP/WebSocket clien
 
 ## Versi
 
-Dokumentasi ini ditulis untuk **ZReq v1.2.0**.
+Dokumentasi ini ditulis untuk **ZReq v1.3.0**.
 
 ## Quick links
 

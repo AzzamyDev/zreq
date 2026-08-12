@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0](https://github.com/AzzamyDev/zreq/compare/v1.2.0...v1.3.0) (2026-08-13)
+
+
+### Features
+
+* add saved responses — save HTTP responses from the response panel, browse them in a dedicated tab, and reopen/load saved response bodies
+* replace CodeMirror with Monaco editor for request/response body editing
+* add collection drag-and-drop, item duplication, and multi-select modes in the collection tree
+* add ImportFormatDialog for choosing import formats when importing collections
+* implement macOS native window chrome (title bar / traffic lights) and fullscreen support via `useMacWindowFullscreen`
+* support multiple OAuth redirect URIs in SettingsDialog and MCP agent presets
+
+
+### Bug Fixes
+
+* clear orphaned tabs when saved responses are deleted
+* refine CollectionItem / TreeNode / Sidebar layout and scroll viewport styling for denser, consistent collection UI
+
 ## [1.2.0](https://github.com/AzzamyDev/zreq/compare/v1.1.0...v1.2.0) (2026-06-20)
 
 
