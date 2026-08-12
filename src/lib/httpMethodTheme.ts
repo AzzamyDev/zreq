@@ -11,6 +11,18 @@ export const METHOD_TEXT_CLASS: Record<string, string> = {
     WS: 'text-[var(--dracula-cyan)]',
 }
 
+/** CSS color values for inline styles (beat menu focus:text overrides). */
+export const METHOD_COLOR: Record<string, string> = {
+    GET: 'var(--dracula-green)',
+    POST: 'var(--dracula-cyan)',
+    PUT: 'var(--dracula-orange)',
+    PATCH: 'var(--dracula-yellow)',
+    DELETE: 'var(--dracula-red)',
+    HEAD: 'var(--muted-foreground)',
+    OPTIONS: 'var(--muted-foreground)',
+    WS: 'var(--dracula-cyan)',
+}
+
 export const METHOD_BG_CLASS: Record<string, string> = {
     GET: 'bg-[#50fa7b]/14',
     POST: 'bg-[#8be9fd]/14',

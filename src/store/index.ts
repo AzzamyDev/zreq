@@ -296,6 +296,8 @@ interface AppState {
 
     /** Multi-select in collection sidebar (requests + folders) */
     sidebarSelection: SidebarSelection | null
+    /** Explicit select mode — checkboxes only when set (via collection/folder menu). */
+    sidebarSelectModeId: number | null
     /** Last clicked item — anchor for Shift+click range without prior multi-select */
     sidebarSelectAnchor: { collectionId: number; itemId: string } | null
     selectSidebarItem: (
@@ -305,6 +307,8 @@ interface AppState {
         flatVisibleIds?: string[]
     ) => void
     setSidebarSelectAnchor: (collectionId: number, itemId: string) => void
+    enterSidebarSelectMode: (collectionId: number) => void
+    exitSidebarSelectMode: () => void
     clearSidebarSelection: () => void
 
     consoleLogs: ConsoleEntry[]
@@ -869,9 +873,11 @@ export const useAppStore = create<AppState>()(
             }),
 
         sidebarSelection: null,
+        sidebarSelectModeId: null,
         sidebarSelectAnchor: null,
         selectSidebarItem: (collectionId, itemId, mode, flatVisibleIds) =>
             set((s) => {
+                if (s.sidebarSelectModeId !== collectionId) return
                 const cur = s.sidebarSelection
                 if (mode === 'replace') {
                     s.sidebarSelection = { collectionId, ids: [itemId], anchorId: itemId }
@@ -909,6 +915,20 @@ export const useAppStore = create<AppState>()(
         setSidebarSelectAnchor: (collectionId, itemId) =>
             set((s) => {
                 s.sidebarSelectAnchor = { collectionId, itemId }
+            }),
+        enterSidebarSelectMode: (collectionId) =>
+            set((s) => {
+                if (s.sidebarSelectModeId !== collectionId) {
+                    s.sidebarSelection = null
+                }
+                s.sidebarSelectModeId = collectionId
+                s.sidebarExpanded[`col:${collectionId}`] = true
+                persistSidebarExpanded(s.sidebarExpanded)
+            }),
+        exitSidebarSelectMode: () =>
+            set((s) => {
+                s.sidebarSelectModeId = null
+                s.sidebarSelection = null
             }),
         clearSidebarSelection: () =>
             set((s) => {
@@ -1023,6 +1043,7 @@ export const useAppStore = create<AppState>()(
                 s.activeEnvironmentId = null
                 s.selectedItemId = null
                 s.sidebarSelection = null
+                s.sidebarSelectModeId = null
                 s.sidebarSelectAnchor = null
                 s.response = null
                 s.isLoading = false

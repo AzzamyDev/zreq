@@ -1,5 +1,5 @@
 import { applyEdits, format } from 'jsonc-parser'
-import { JSON_INDENT_TAB_SIZE } from './json-codemirror-setup'
+import { JSON_INDENT_TAB_SIZE } from './json-editor-constants'
 import { stripJsonComments } from './strip-json-comments'
 
 /** Pretty-print JSONC (4 spaces); keeps line/block comments and `{{var}}` inside strings. */

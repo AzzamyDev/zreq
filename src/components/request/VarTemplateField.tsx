@@ -4,8 +4,6 @@ import { createPortal, flushSync } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../store'
 import { useEnvironment } from '../../hooks/useEnvironment'
-import { Input } from '../ui/input'
-import { Button } from '../ui/button'
 import {
     findVarSegmentIndexAtUrlOffset,
     flatOffsetToTextCaret,
@@ -22,6 +20,7 @@ import {
     listTemplateVariableSuggestions,
     type VariableSuggestionScope,
 } from '../../lib/env-resolver'
+import { ensureVarPanelHost } from '../../lib/monaco-json-template'
 import { cn } from '../../lib/utils'
 
 /** Cursor in a text segment right after `{{`, optional partial name (no closing `}}` yet). */
@@ -260,17 +259,22 @@ function VarTemplateField({
     const [varPanelPos, setVarPanelPos] = useState<{ x: number; y: number } | null>(null)
     const varChipAnchorRefs = useRef<Map<number, HTMLDivElement>>(new Map())
     const varValuePanelRef = useRef<HTMLDivElement>(null)
+    const editVarInitialRef = useRef('')
 
     const repositionVarValuePanel = useCallback(() => {
         if (openVarSegIndex == null) return
         const el = varChipAnchorRefs.current.get(openVarSegIndex)
         if (!el) return
         const r = el.getBoundingClientRect()
-        const panelW = 288
+        const panelW = 400
         const pad = 8
         const x = Math.max(pad, Math.min(r.left, window.innerWidth - panelW - pad))
-        const y = Math.min(r.bottom + 6, window.innerHeight - pad)
-        setVarPanelPos({ x, y })
+        const panelH = varValuePanelRef.current?.offsetHeight ?? 120
+        let y = r.bottom + 4
+        if (y + panelH > window.innerHeight - pad) {
+            y = r.top - panelH - 4
+        }
+        setVarPanelPos({ x, y: Math.max(pad, y) })
     }, [openVarSegIndex])
 
     useLayoutEffect(() => {
@@ -314,12 +318,15 @@ function VarTemplateField({
 
     useEffect(() => {
         if (openVarSegIndex == null) return
+        const seg = segments[openVarSegIndex]
+        if (seg?.type !== 'var') return
+        if (getVariableSource(seg.name, variableSuggestionScope) !== 'none') return
         const id = window.setTimeout(() => {
             const inp = varValuePanelRef.current?.querySelector('input')
             if (inp instanceof HTMLInputElement) inp.focus()
         }, 0)
         return () => clearTimeout(id)
-    }, [openVarSegIndex])
+    }, [openVarSegIndex, segments, variableSuggestionScope])
 
     const openVarName =
         openVarSegIndex != null && segments[openVarSegIndex]?.type === 'var'
@@ -352,6 +359,7 @@ function VarTemplateField({
     useEffect(() => {
         if (!openVarName || storeResolvedVarValue === undefined) return
         setEditVarValue(storeResolvedVarValue)
+        editVarInitialRef.current = storeResolvedVarValue
     }, [openVarName, storeResolvedVarValue])
 
     useEffect(() => {
@@ -580,10 +588,18 @@ function VarTemplateField({
         }
     }
 
-    const handleSaveVarValue = async () => {
+    const handleSaveVarValue = async (closeOnSave = false) => {
         if (!openVarName || !activeEnvironmentId) return
         const env = environments.find((e) => e.id === activeEnvironmentId)
         if (!env) return
+        const trimmed = editVarValue.trim()
+        const existing = env.variables?.find((v) => v.key === openVarName)
+        if (!varPanelResolved) {
+            if (!trimmed) return
+        } else if (editVarValue === (existing?.value ?? editVarInitialRef.current)) {
+            if (closeOnSave) setOpenVarSegIndex(null)
+            return
+        }
         const vars = [...(env.variables ?? [])]
         const i = vars.findIndex((v) => v.key === openVarName)
         if (i >= 0) {
@@ -592,8 +608,24 @@ function VarTemplateField({
             vars.push({ key: openVarName, value: editVarValue, enabled: true })
         }
         await updateVariables(activeEnvironmentId, vars)
-        setOpenVarSegIndex(null)
+        editVarInitialRef.current = editVarValue
+        if (closeOnSave) setOpenVarSegIndex(null)
     }
+
+    const handleVarInputBlur = (e: React.FocusEvent<HTMLInputElement>, closeOnSave: boolean) => {
+        const related = e.relatedTarget as Node | null
+        if (related && varValuePanelRef.current?.contains(related)) return
+        if (closeOnSave) return
+        void handleSaveVarValue(false)
+    }
+
+    const openEnvironmentSelector = () => {
+        setOpenVarSegIndex(null)
+        document.querySelector<HTMLElement>('[data-zreq-focus="environment-selector"]')?.click()
+    }
+
+    const activeEnvName =
+        environments.find((e) => e.id === activeEnvironmentId)?.name ?? t('envSelector.noEnvironment')
 
     let textInputCounter = 0
 
@@ -651,8 +683,8 @@ function VarTemplateField({
                                 className={cn(
                                     'inline-flex max-w-[min(100%,220px)] shrink-0 self-center items-center overflow-hidden rounded px-0.5 py-px font-mono text-xs leading-none outline-none focus-within:ring-1',
                                     resolved
-                                        ? 'border border-dashed border-[color-mix(in_srgb,var(--dracula-orange)_55%,transparent)] bg-[color-mix(in_srgb,#ffb86c_14%,#282a36)] focus-within:ring-[var(--dracula-orange)]/25'
-                                        : 'border border-dashed border-[color-mix(in_srgb,var(--dracula-red)_70%,transparent)] bg-[color-mix(in_srgb,#ff5555_16%,#282a36)] focus-within:ring-[var(--dracula-red)]/30',
+                                        ? 'bg-[color-mix(in_srgb,#ffb86c_8%,transparent)] focus-within:ring-[var(--dracula-orange)]/25'
+                                        : 'bg-[color-mix(in_srgb,#ff5555_9%,transparent)] focus-within:ring-[var(--dracula-red)]/30',
                                 )}
                                 onPointerDownCapture={(e) => {
                                     if (performance.now() < blockVarChipHoverOpenUntilRef.current) {
@@ -916,62 +948,110 @@ function VarTemplateField({
                         data-var-value-panel
                         role="dialog"
                         aria-label={t('vars.value')}
-                        className="fixed z-[200] flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-2 rounded-md border border-border bg-popover p-3 shadow-md"
+                        className="monaco-json-template-var-panel"
                         style={{ left: varPanelPos.x, top: varPanelPos.y }}
                         onMouseEnter={cancelHoverClose}
                         onMouseLeave={scheduleHoverClose}
                     >
-                        <div className="flex flex-col gap-2">
-                            <p className="text-xs font-medium text-muted-foreground">
-                                <span
-                                    className={cn(
-                                        'mr-1 inline-flex size-4 items-center justify-center rounded text-[10px] font-bold',
-                                        varPanelResolved
-                                            ? varPanelSrc === 'environment'
-                                                ? 'bg-[var(--dracula-green)]/25 text-[var(--dracula-green)]'
-                                                : 'bg-[var(--dracula-cyan)]/25 text-[var(--dracula-cyan)]'
-                                            : 'bg-[var(--dracula-red)]/25 text-[var(--dracula-red)]',
-                                    )}
-                                >
-                                    {varPanelResolved ? (varPanelSrc === 'environment' ? 'E' : 'C') : '!'}
-                                </span>
-                                {sourceLabel(varPanelSeg.name)}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground">{t('vars.editChipHint')}</p>
-                            <p className="text-[11px] text-muted-foreground">{t('vars.value')}</p>
-                            <Input
-                                value={editVarValue}
-                                onChange={(e) => setEditVarValue(e.target.value)}
-                                className="font-mono text-xs placeholder:text-xs"
-                                placeholder={t('vars.value')}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') void handleSaveVarValue()
-                                }}
-                            />
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={() => setOpenVarSegIndex(null)}
-                                >
-                                    {t('common.close')}
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    disabled={!activeEnvironmentId}
-                                    onClick={() => void handleSaveVarValue()}
-                                >
-                                    {t('vars.saveToEnvironment')}
-                                </Button>
-                            </div>
-                            {!activeEnvironmentId && (
-                                <p className="text-[11px] text-muted-foreground">{t('vars.selectEnvHint')}</p>
-                            )}
-                        </div>
+                        {varPanelResolved && varPanelSrc ? (
+                            <>
+                                <div className="monaco-json-var-panel-body">
+                                    <div className="monaco-json-var-value-box">
+                                        <input
+                                            type="text"
+                                            className="monaco-json-var-value-input"
+                                            value={editVarValue}
+                                            disabled={!activeEnvironmentId}
+                                            onChange={(e) => setEditVarValue(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault()
+                                                    void handleSaveVarValue(true)
+                                                }
+                                            }}
+                                            onBlur={(e) => handleVarInputBlur(e, false)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="monaco-json-var-panel-foot">
+                                    <div className="monaco-json-var-panel-scope">
+                                        <span
+                                            className={cn(
+                                                'monaco-json-var-scope-badge',
+                                                varPanelSrc === 'environment'
+                                                    ? 'monaco-json-var-scope-badge--env'
+                                                    : 'monaco-json-var-scope-badge--coll',
+                                            )}
+                                        >
+                                            {varPanelSrc === 'environment' ? 'E' : 'C'}
+                                        </span>
+                                        <span>{sourceLabel(varPanelSeg.name)}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="monaco-json-var-link"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={openEnvironmentSelector}
+                                    >
+                                        {t('vars.jsonBodyVariablesLink')}
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="monaco-json-var-panel-body">
+                                    <input
+                                        type="text"
+                                        className="monaco-json-var-value-input"
+                                        placeholder={t('vars.enterValue')}
+                                        value={editVarValue}
+                                        disabled={!activeEnvironmentId}
+                                        onChange={(e) => setEditVarValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                void handleSaveVarValue(true)
+                                            }
+                                        }}
+                                        onBlur={(e) => handleVarInputBlur(e, true)}
+                                    />
+                                    <div className="monaco-json-var-add-row">
+                                        <button
+                                            type="button"
+                                            className="monaco-json-var-add-btn"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={openEnvironmentSelector}
+                                        >
+                                            {t('vars.addTo')}{' '}
+                                            <span className="monaco-json-var-add-btn-target">{activeEnvName}</span>
+                                            <span className="monaco-json-var-add-btn-chevron" aria-hidden>
+                                                ▾
+                                            </span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="monaco-json-var-link"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={openEnvironmentSelector}
+                                        >
+                                            {t('vars.jsonBodyVariablesLink')}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="monaco-json-var-switch-foot">
+                                    {t('vars.switchEnvPrompt')}{' '}
+                                    <button
+                                        type="button"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={openEnvironmentSelector}
+                                    >
+                                        {t('vars.jsonBodySwitchEnvironment')}
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>,
-                    document.body,
+                    ensureVarPanelHost(),
                 )}
 
             {templateSuggest &&

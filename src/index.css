@@ -52,7 +52,7 @@
     --foreground: #f8f8f2;
     --card: #303241;
     --card-foreground: #f8f8f2;
-    --popover: #303241;
+    --popover: #1a1c26;
     --popover-foreground: #f8f8f2;
     --primary: #bd93f9;
     --primary-foreground: #282a36;
@@ -80,9 +80,9 @@
     --sidebar-accent-foreground: #f8f8f2;
     --sidebar-border: color-mix(in srgb, #6272a4 28%, transparent);
     --sidebar-ring: #bd93f9;
-    /* Sidebar / list: solid hover & selection (less “washed” than low-alpha accents) */
-    --sidebar-row-hover: #3d4055;
-    --sidebar-row-selected: #44475a;
+    /* Sidebar / list: solid hover & selection (darker lift off --sidebar, still readable) */
+    --sidebar-row-hover: #22242f;
+    --sidebar-row-selected: #2c2f3e;
     --dracula-green: #50fa7b;
     --dracula-cyan: #8be9fd;
     --dracula-orange: #ffb86c;
@@ -112,152 +112,235 @@
   }
 }
 
-/* CodeMirror: show multiline placeholder as real line breaks (not collapsed / literal \\n). */
-.cm-editor .cm-placeholder {
-    white-space: pre-wrap;
+/* Monaco editor chrome */
+.json-body-monaco .monaco-editor,
+.json-body-monaco .monaco-editor-background,
+.json-body-monaco .margin {
+    background-color: var(--background) !important;
 }
 
-/* Postman-like: no bracket box outlines, unified editor surface */
-.cm-editor .cm-matchingBracket,
-.cm-editor .cm-nonmatchingBracket {
-    background: transparent !important;
-    outline: none !important;
-    border: none !important;
-    box-shadow: none !important;
+.json-body-monaco .monaco-editor .view-lines {
+    white-space: pre !important;
 }
 
-/* No vertical rule between line numbers and code (CM default light theme adds one). */
-.cm-editor .cm-gutters,
-.cm-editor .cm-gutters.cm-gutters-before,
-.cm-editor .cm-gutters.cm-gutters-after,
-.cm-editor .cm-gutter {
-    border: none !important;
-    border-right: none !important;
-    border-left: none !important;
-}
-
-/* JSONC comments: mute entire region (override inner Lezer highlight spans). */
-.cm-editor .cm-jsonc-comment,
-.cm-editor .cm-jsonc-comment * {
+/* JSONC comments in JSON body */
+.monaco-editor .monaco-jsonc-comment {
     color: var(--muted-foreground) !important;
     font-style: italic;
 }
 
-/* JSON body viewers/editors: preserve indent; long lines scroll horizontally */
-.json-body-cm .cm-editor {
-    --indent-marker-bg-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
-    --indent-marker-active-bg-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent);
-}
-
-.json-body-cm .cm-line {
-    white-space: pre;
-}
-
-.json-body-cm .cm-scroller {
-    overflow-x: auto;
-}
-
-/* {{variable}} chips in JSON body — tight inline chip, aligned with string quotes */
-.cm-editor .cm-json-template-badge {
-    display: inline !important;
-    vertical-align: baseline;
-    line-height: inherit;
+/* {{variable}} chips in JSON body */
+.monaco-editor .monaco-json-template-badge {
     border-radius: 3px;
     padding: 0 0.15em;
     margin: 0 0.06em;
-    background: color-mix(in srgb, #ffb86c 14%, transparent);
-    border: 1px dashed color-mix(in srgb, #ffb86c 55%, transparent);
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    max-width: max-content;
-    width: auto;
-}
-.cm-editor .cm-json-template-badge,
-.cm-editor .cm-json-template-badge * {
-    color: color-mix(in srgb, #ffb86c 88%, white) !important;
-    font-style: normal !important;
-    line-height: inherit !important;
+    background: color-mix(in srgb, #ffb86c 8%, transparent);
 }
 
-.cm-editor .cm-json-template-badge--missing {
-    background: color-mix(in srgb, var(--destructive) 16%, transparent);
-    border: 1px dashed color-mix(in srgb, var(--destructive) 55%, transparent);
-    padding: 0 0.15em;
-    margin: 0 0.06em;
+.monaco-editor .monaco-json-template-badge {
+    color: color-mix(in srgb, #ffb86c 88%, white) !important;
 }
-.cm-editor .cm-json-template-badge--missing,
-.cm-editor .cm-json-template-badge--missing * {
+
+.monaco-editor .monaco-json-template-badge--missing {
+    background: color-mix(in srgb, var(--destructive) 9%, transparent);
     color: var(--destructive) !important;
 }
 
-/*
- * CodeMirror tooltips use `#zreq-cm-tooltip-host` (fixed 0×0, pointer-events: none).
- * Re-enable hits on tooltip UI; host stays out of document flow so the app shell height stays stable.
- */
-#zreq-cm-tooltip-host .cm-tooltip {
+/* {{var}} hover panel — Postman-like compact card */
+#zreq-var-panel-host .monaco-json-template-var-panel {
     pointer-events: auto;
 }
 
-/*
- * EditorView.theme only targets nodes under .cm-editor, so hosted tooltips need global rules
- * or they lose z-index / background and panel chrome (e.g. resizable handles) paints on top.
- */
-.cm-tooltip {
-    z-index: 20050 !important;
-    isolation: isolate;
-    background-color: var(--popover) !important;
-    background-clip: padding-box;
-    color: var(--popover-foreground) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px;
-    box-shadow:
-        0 10px 38px color-mix(in srgb, #000 50%, transparent),
-        0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
-}
-
-/* JSON {{var}} hover: host is 0×0 fixed — without min-width CM measures a pillar; keep Postman-like width */
-.cm-tooltip:has(.cm-json-template-var-tooltip-inner) {
-    padding: 0 !important;
+.monaco-json-template-var-panel {
+    position: fixed;
+    z-index: 99999;
     box-sizing: border-box;
-    min-width: min(20rem, calc(100vw - 2rem)) !important;
-    max-width: min(28rem, calc(100vw - 1.5rem)) !important;
-    width: min(24rem, calc(100vw - 2rem)) !important;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    width: min(25rem, calc(100vw - 1.5rem));
+    min-width: 22rem;
+    max-width: min(32rem, calc(100vw - 1rem));
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow:
+        0 4px 16px color-mix(in srgb, #000 45%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--border) 60%, transparent);
     overflow: hidden;
 }
-.cm-json-template-var-tooltip-inner {
-    box-sizing: border-box;
-    padding: 0.65rem 0.85rem;
-    min-width: 100%;
-    width: 100%;
-    max-width: 100%;
+
+.monaco-json-var-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem 0.55rem;
 }
-.cm-json-template-var-tooltip-inner > p {
-    margin: 0;
-    text-align: start;
-    text-wrap: pretty;
-    word-break: break-word;
+
+.monaco-json-var-value-box {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--background);
+    padding: 0.3rem 0.45rem;
 }
-.cm-json-missing-var-value-input {
+
+.monaco-json-var-value-box .monaco-json-var-value-input {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.monaco-json-var-value-box .monaco-json-var-value-input:focus-visible {
+    box-shadow: none;
+    outline: none;
+}
+
+.monaco-json-var-value-input {
     display: block;
     width: 100%;
     box-sizing: border-box;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 4px;
     background: var(--background);
     color: var(--foreground);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 11px;
-    line-height: 1.4;
-    padding: 6px 8px;
+    line-height: 1.35;
+    padding: 0.35rem 0.45rem;
     outline: none;
 }
-.cm-json-missing-var-value-input:focus-visible {
-    border-color: var(--ring);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ring) 35%, transparent);
+
+.monaco-json-var-value-input:focus-visible {
+    border-color: color-mix(in srgb, var(--ring) 70%, var(--border));
 }
-.cm-json-missing-var-value-input:disabled {
+
+.monaco-json-var-value-input:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+}
+
+.monaco-json-var-value-input::placeholder {
+    color: var(--muted-foreground);
+}
+
+.monaco-json-var-add-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 11px;
+}
+
+.monaco-json-var-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    border: none;
+    background: transparent;
+    padding: 0;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.monaco-json-var-add-btn:hover {
+    color: var(--foreground);
+}
+
+.monaco-json-var-add-btn-target {
+    color: var(--foreground);
+    font-weight: 500;
+}
+
+.monaco-json-var-add-btn-chevron {
+    font-size: 9px;
+    opacity: 0.7;
+}
+
+.monaco-json-var-link {
+    border: none;
+    background: transparent;
+    padding: 0;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.monaco-json-var-link:hover {
+    color: var(--foreground);
+}
+
+.monaco-json-var-panel-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-top: 1px solid var(--border);
+    padding: 0.4rem 0.55rem;
+    font-size: 11px;
+}
+
+.monaco-json-var-panel-scope {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    color: var(--muted-foreground);
+}
+
+.monaco-json-var-scope-badge {
+    display: inline-flex;
+    size: 1rem;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.monaco-json-var-scope-badge--env {
+    background: color-mix(in srgb, var(--dracula-green) 28%, transparent);
+    color: var(--dracula-green);
+}
+
+.monaco-json-var-scope-badge--coll {
+    background: color-mix(in srgb, var(--dracula-cyan) 28%, transparent);
+    color: var(--dracula-cyan);
+}
+
+.monaco-json-var-switch-foot {
+    border-top: 1px solid var(--border);
+    padding: 0.45rem 0.55rem;
+    font-size: 11px;
+    color: var(--muted-foreground);
+    text-align: center;
+}
+
+.monaco-json-var-switch-foot button {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin-left: 0.2rem;
+    color: var(--foreground);
+    font-size: 11px;
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.monaco-json-var-switch-foot button:hover {
+    color: var(--primary);
 }
 
 /* App shell: fill viewport; avoid document-level vertical scroll (panels scroll internally). */

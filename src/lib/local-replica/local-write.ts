@@ -89,13 +89,17 @@ export async function writeCollectionPatch(collectionId: number, body: Record<st
 export async function createLocalCollection(
     name: string,
     items: unknown[] = [],
-    extra?: { description?: string; auth?: unknown; variables?: unknown[] }
+    extra?: { description?: string; auth?: unknown; variables?: unknown[]; sortOrder?: number }
 ) {
     const wid = useAppStore.getState().activeWorkspaceId
     const user = useAuthStore.getState().user
     if (wid == null || !user) return null
     const tempId = -Math.floor(Math.random() * 1e12 + Date.now())
     const now = new Date().toISOString()
+    const existing = useAppStore.getState().collections
+    const sortOrder =
+        extra?.sortOrder ??
+        Math.max(-1, ...existing.map((c) => c.sortOrder ?? -1)) + 1
     const col: Collection = {
         id: tempId,
         name,
@@ -103,6 +107,7 @@ export async function createLocalCollection(
         ...(extra?.auth != null ? { auth: extra.auth as Collection['auth'] } : {}),
         ...(extra?.variables != null ? { variables: extra.variables as Collection['variables'] } : {}),
         items: items as Collection['items'],
+        sortOrder,
         userId: user.id,
         workspaceId: wid,
         createdAt: now,
@@ -114,11 +119,30 @@ export async function createLocalCollection(
     snap.applyMemory((mem) => {
         mem.metaCollection[tempId] = { serverUpdatedAt: now, dirty: false }
     })
-    await writeCollectionCreate(tempId, { name, items, workspaceId: wid, ...extra })
+    await writeCollectionCreate(tempId, {
+        name,
+        items,
+        workspaceId: wid,
+        sortOrder,
+        ...(extra?.description != null ? { description: extra.description } : {}),
+        ...(extra?.auth != null ? { auth: extra.auth } : {}),
+        ...(extra?.variables != null ? { variables: extra.variables } : {}),
+    })
     return col
 }
 
-export async function writeCollectionCreate(tempId: number, payload: { name: string; items: unknown[]; workspaceId: number; description?: string; auth?: unknown; variables?: unknown[] }) {
+export async function writeCollectionCreate(
+    tempId: number,
+    payload: {
+        name: string
+        items: unknown[]
+        workspaceId: number
+        description?: string
+        auth?: unknown
+        variables?: unknown[]
+        sortOrder?: number
+    }
+) {
     const key = getReplicaKeyOrNull()
     if (!key) return
     await ensureReplicaLoaded()

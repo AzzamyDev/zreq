@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, ChevronDown, Plus, MoreHorizontal, UnfoldVertical, FoldVertical, Trash2, X } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, MoreHorizontal, UnfoldVertical, FoldVertical, Trash2, FolderOpen, Folder, GripVertical } from 'lucide-react'
 import {
     useDroppable,
 } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
     ContextMenu,
     ContextMenuContent,
@@ -24,6 +25,7 @@ import NewFolderDialog from './NewFolderDialog'
 import TreeNode from './TreeNode'
 import type { Collection } from '../../types'
 import { flattenVisibleTreeItemIds } from '../../lib/collection-tree-select'
+import { colSortId } from '../../lib/collection-tree'
 import { CollectionSelectionContext } from './CollectionSelectionContext'
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
@@ -36,6 +38,8 @@ import { SIDEBAR_DROP_ACTIVE, SIDEBAR_DROP_ACTIVE_STRIP } from '../../lib/sideba
 
 interface CollectionItemProps {
     collection: Collection
+    forceExpand?: boolean
+    dragDisabled?: boolean
 }
 
 function CollectionHeaderDropZone({
@@ -78,10 +82,12 @@ function RootEndDropZone({ collectionId }: { collectionId: number }) {
     )
 }
 
-export default function CollectionItem({ collection }: CollectionItemProps) {
+export default function CollectionItem({ collection, forceExpand = false, dragDisabled = false }: CollectionItemProps) {
     const { t } = useTranslation()
     const colKey = `col:${collection.id}`
-    const expanded = useAppStore((s) => s.sidebarExpanded[colKey] ?? true)
+    const storeExpanded = useAppStore((s) => s.sidebarExpanded[colKey] ?? true)
+    const setSidebarCollectionExpanded = useAppStore((s) => s.setSidebarCollectionExpanded)
+    const expanded = forceExpand || storeExpanded
     const toggleSidebarCollectionExpanded = useAppStore((s) => s.toggleSidebarCollectionExpanded)
     const [renameOpen, setRenameOpen] = useState(false)
     const [saveRequestOpen, setSaveRequestOpen] = useState(false)
@@ -96,6 +102,7 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
     const {
         renameCollection,
         deleteCollection,
+        duplicateCollection,
         addFolder,
         addRequest,
         addWebSocketRequest,
@@ -104,7 +111,9 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
     } = useCollection()
     const sidebarExpanded = useAppStore((s) => s.sidebarExpanded)
     const sidebarSelection = useAppStore((s) => s.sidebarSelection)
-    const clearSidebarSelection = useAppStore((s) => s.clearSidebarSelection)
+    const selectMode = useAppStore((s) => s.sidebarSelectModeId === collection.id)
+    const enterSidebarSelectMode = useAppStore((s) => s.enterSidebarSelectMode)
+    const exitSidebarSelectMode = useAppStore((s) => s.exitSidebarSelectMode)
 
     const flatVisibleIds = useMemo(
         () => flattenVisibleTreeItemIds(collection.items ?? [], collection.id, sidebarExpanded),
@@ -164,7 +173,13 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
     }
 
     const handleDelete = async () => {
+        if (selectMode) exitSidebarSelectMode()
         await deleteCollection(collection.id)
+    }
+
+    const handleDuplicate = async () => {
+        setMoreMenuOpen(false)
+        await duplicateCollection(collection.id)
     }
 
     const handleAddRequest = async (folderId?: string) => {
@@ -202,29 +217,49 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
         useAppStore.getState().setAllSidebarFoldersExpanded(collection.id, items, false)
     }
 
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        setActivatorNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({
+        id: colSortId(collection.id),
+        data: { type: 'collectionSort', collectionId: collection.id },
+        disabled: dragDisabled,
+    })
+
+    const rowStyle: CSSProperties = {
+        transform: transform ? CSS.Transform.toString(transform) : undefined,
+        transition,
+        opacity: isDragging ? 0.45 : undefined,
+    }
+
     return (
-        <div>
+        <div ref={setNodeRef} style={rowStyle} className={isDragging ? 'z-20 relative' : undefined}>
             <ContextMenu>
                 <CollectionHeaderDropZone
                     collectionId={collection.id}
                     title={t('collection.dropIntoCollection')}
-                    className={`group relative flex items-center gap-1 rounded-sm mb-1 mx-1 px-2 py-1.5 text-sm font-medium select-none hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen || addMenuOpen ? 'z-100 isolate' : 'z-0'}`}
+                    className={`group relative flex items-center gap-1 rounded-sm mb-1 mx-1 px-2 py-1.5 text-sm font-medium select-none hover:bg-[var(--sidebar-row-hover)] ${moreMenuOpen || addMenuOpen || isDragging ? 'z-100 isolate' : 'z-0'}`}
                 >
                     <ContextMenuTrigger
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1"
                         onClick={() => toggleSidebarCollectionExpanded(collection.id)}
                     >
                         {expanded ? (
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
                         ) : (
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                         )}
-                        <span className="flex-1 truncate">{collection.name}</span>
+                        <span className="flex-1 truncate ml-2">{collection.name}</span>
                     </ContextMenuTrigger>
 
                     {/* Hover action buttons — outside trigger so clicks never toggle the collection row */}
                     <div
-                        className={`flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 ${moreMenuOpen || addMenuOpen ? 'pointer-events-auto opacity-100' : ''}`}
+                        className={`flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 ${moreMenuOpen || addMenuOpen || isDragging ? 'pointer-events-auto opacity-100' : ''}`}
                         onPointerDown={(e) => e.stopPropagation()}
                     >
                             <button
@@ -349,6 +384,17 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setMoreMenuOpen(false)
+                                                enterSidebarSelectMode(collection.id)
+                                            }}
+                                        >
+                                            {t('collection.selectItems')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={SIDEBAR_MORE_MENU_ITEM}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setMoreMenuOpen(false)
                                                 setSettingsOpen(true)
                                             }}
                                         >
@@ -364,6 +410,16 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
                                             }}
                                         >
                                             {t('common.rename')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={SIDEBAR_MORE_MENU_ITEM}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                void handleDuplicate()
+                                            }}
+                                        >
+                                            {t('collection.duplicate')}
                                         </button>
                                         <button
                                             type="button"
@@ -392,6 +448,28 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
                                 )}
                             </div>
                         </div>
+                            <button
+                                type="button"
+                                ref={setActivatorNodeRef}
+                                {...attributes}
+                                {...listeners}
+                                className="relative shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-[var(--sidebar-row-hover)] active:cursor-grabbing data-[dragging]:opacity-100"
+                                title={t('collection.dragToReorder')}
+                                onClick={(e) => e.stopPropagation()}
+                                onPointerDown={(e) => {
+                                    setSidebarCollectionExpanded(collection.id, false)
+                                    listeners?.onPointerDown?.(e)
+                                }}
+                                style={
+                                    dragDisabled
+                                        ? { display: 'none' }
+                                        : isDragging
+                                          ? { opacity: 1, pointerEvents: 'auto' }
+                                          : undefined
+                                }
+                            >
+                                <GripVertical className="h-3.5 w-3.5" />
+                            </button>
                 </CollectionHeaderDropZone>
                 <ContextMenuContent>
                     <ContextMenuItem onClick={() => { setTargetFolderId(undefined); setSaveRequestOpen(true) }}>
@@ -421,12 +499,18 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
                     >
                         {t('collection.collapseAll')}
                     </ContextMenuItem>
+                    <ContextMenuItem onClick={() => enterSidebarSelectMode(collection.id)}>
+                        {t('collection.selectItems')}
+                    </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem onClick={() => setSettingsOpen(true)}>
                         {t('common.settings')}
                     </ContextMenuItem>
                     <ContextMenuItem onClick={() => setRenameOpen(true)}>
                         {t('common.rename')}
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => void handleDuplicate()}>
+                        {t('collection.duplicate')}
                     </ContextMenuItem>
                     <ContextMenuItem onClick={() => void handleExport()}>
                         {t('collection.export')}
@@ -440,56 +524,86 @@ export default function CollectionItem({ collection }: CollectionItemProps) {
 
             {expanded && (
                 <>
-                    {selectionCount > 0 && (
+                    {selectMode && (
                         <div
                             className="mx-1 mb-1 flex flex-col gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-xs animate-in fade-in slide-in-from-top-1 duration-200"
                             title={t('collection.multiSelectHint')}
                         >
                             <div className="flex items-center gap-1">
                             <span className="flex-1 truncate font-medium text-foreground">
-                                {t('collection.selectedCount', { count: selectionCount })}
+                                {selectionCount > 0
+                                    ? t('collection.selectedCount', { count: selectionCount })
+                                    : t('collection.selectItemsHint')}
                             </span>
+                            {selectionCount > 0 ? (
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-destructive transition-colors hover:bg-destructive/10"
+                                    title={t('collection.deleteSelected')}
+                                    onClick={() => setBulkDeleteOpen(true)}
+                                >
+                                    <Trash2 className="h-3 w-3" />
+                                    {t('common.delete')}
+                                </button>
+                            ) : null}
                             <button
                                 type="button"
-                                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-destructive transition-colors hover:bg-destructive/10"
-                                title={t('collection.deleteSelected')}
-                                onClick={() => setBulkDeleteOpen(true)}
+                                className="rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-[var(--sidebar-row-hover)] hover:text-foreground"
+                                title={t('collection.doneSelecting')}
+                                onClick={exitSidebarSelectMode}
                             >
-                                <Trash2 className="h-3 w-3" />
-                                {t('common.delete')}
-                            </button>
-                            <button
-                                type="button"
-                                className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--sidebar-row-hover)] hover:text-foreground"
-                                title={t('collection.clearSelection')}
-                                onClick={clearSidebarSelection}
-                            >
-                                <X className="h-3.5 w-3.5" />
+                                {t('collection.doneSelecting')}
                             </button>
                             </div>
                         </div>
                     )}
                     <CollectionSelectionContext.Provider value={flatVisibleIds}>
-                        <SortableContext
-                            items={(collection.items ?? []).map((i) => i.id)}
-                            strategy={verticalListSortingStrategy}
-                        >
-                            {collection.items?.map((item) => (
-                                <TreeNode
-                                    key={item.id}
-                                    item={item}
-                                    collectionId={collection.id}
-                                    parentFolderId={undefined}
-                                    depth={0}
-                                    onAddRequest={(folderId) => {
-                                        setTargetFolderId(folderId)
-                                        setSaveRequestOpen(true)
-                                    }}
-                                    onAddWebSocketRequest={(folderId) => void handleAddWebSocketRequest(folderId)}
-                                    ancestorNames={[collection.name]}
-                                />
-                            ))}
-                        </SortableContext>
+                        {(collection.items?.length ?? 0) === 0 ? (
+                            <div className="mx-2 mb-1 flex flex-col items-center mx-4 gap-2 rounded-md border border-dashed border-border/50 bg-transparent px-3 py-3">
+                                <p className="text-xs text-muted-foreground">{t('collection.emptyCollection')}</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-[var(--sidebar-row-hover)] px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:brightness-110"
+                                        onClick={() => void handleAddRequest(undefined)}
+                                    >
+                                        <Plus className="h-3 w-3" />
+                                        {t('collection.addRequest')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--sidebar-row-hover)] hover:text-foreground"
+                                        onClick={handleAddFolder}
+                                    >
+                                        <Folder className="h-3 w-3" />
+                                        {t('collection.addFolder')}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <SortableContext
+                                items={(collection.items ?? []).map((i) => i.id)}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                {collection.items?.map((item) => (
+                                    <TreeNode
+                                        key={item.id}
+                                        item={item}
+                                        collectionId={collection.id}
+                                        parentFolderId={undefined}
+                                        depth={0}
+                                        forceExpand={forceExpand}
+                                        dragDisabled={dragDisabled}
+                                        onAddRequest={(folderId) => {
+                                            setTargetFolderId(folderId)
+                                            setSaveRequestOpen(true)
+                                        }}
+                                        onAddWebSocketRequest={(folderId) => void handleAddWebSocketRequest(folderId)}
+                                        ancestorNames={[collection.name]}
+                                    />
+                                ))}
+                            </SortableContext>
+                        )}
                         <RootEndDropZone collectionId={collection.id} />
                     </CollectionSelectionContext.Provider>
                 </>

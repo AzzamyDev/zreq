@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/store/authStore'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
     Dialog,
@@ -10,7 +11,15 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog'
-import { CloudUpload, LogOut, Settings } from 'lucide-react'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { CloudUpload, LogOut, Settings, UserRound } from 'lucide-react'
 import EnvironmentSelector from '@/components/environment/EnvironmentSelector'
 import InstanceSwitcher from '@/components/instance/InstanceSwitcher'
 import WorkspaceSwitcher from '@/components/layout/WorkspaceSwitcher'
@@ -89,7 +98,7 @@ export default function TopBar() {
 
             <div
                 data-tauri-no-drag={isTauri ? true : undefined}
-                className="flex min-w-0 items-center gap-2 px-2 border-r border-border"
+                className="flex min-w-0 items-center gap-2 px-2"
             >
                 <InstanceSwitcher />
                 <WorkspaceSwitcher />
@@ -119,38 +128,50 @@ export default function TopBar() {
 
             <div
                 data-tauri-no-drag={isTauri ? true : undefined}
-                className="flex items-center gap-3 px-4"
+                className="flex items-center px-3"
             >
-                <button
-                    data-tauri-no-drag={isTauri ? true : undefined}
-                    onClick={() => setProfileOpen(true)}
-                    className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer"
-                >
-                    <span className="w-6 h-6 flex items-center justify-center rounded-full bg-muted text-muted-foreground font-semibold uppercase">
-                        {user?.name ? user.name.charAt(0) : ''}
-                    </span>
-                    {user?.name}
-                </button>
-
-                <button
-                    data-tauri-no-drag={isTauri ? true : undefined}
-                    onClick={() => setSettingsOpen(true)}
-                    className="p-1.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground"
-                    title={t('topBar.settingsTitle')}
-                >
-                    <Settings className="h-4 w-4" />
-                </button>
-
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    data-tauri-no-drag={isTauri ? true : undefined}
-                    className="h-7 w-7"
-                    title={t('topBar.signOut')}
-                    onClick={() => setSignOutOpen(true)}
-                >
-                    <LogOut className="h-3.5 w-3.5" />
-                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        data-tauri-no-drag={isTauri ? true : undefined}
+                        render={
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="rounded-full"
+                                aria-label={t('topBar.accountMenu')}
+                            >
+                                <Avatar size="sm" className="size-6">
+                                    <AvatarFallback className="bg-muted font-semibold uppercase text-muted-foreground">
+                                        {user?.name?.charAt(0) || '?'}
+                                    </AvatarFallback>
+                                </Avatar>
+                            </Button>
+                        }
+                    />
+                    <DropdownMenuContent align="end" sideOffset={6} className="min-w-48">
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem onClick={() => setProfileOpen(true)}>
+                                <UserRound />
+                                <span className="truncate">{user?.name || t('topBar.account')}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                                <Settings />
+                                {t('topBar.settingsTitle')}
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => setSignOutOpen(true)}
+                            >
+                                <LogOut />
+                                {t('topBar.signOut')}
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
             <WindowControls />

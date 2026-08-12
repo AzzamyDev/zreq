@@ -9,6 +9,7 @@ import { useAppStore } from '@/store'
 import { useSyncStore } from '@/store/syncStore'
 import type { Collection, Environment, Workspace } from '@/types'
 import { normalizeEnvVarsForDiff, stableStringify } from '@/lib/conflict-diff'
+import { sortCollectionsByOrder } from '@/lib/collection-tree'
 import { makeReplicaKey } from './replica-key'
 import * as snap from './snapshot-store'
 import { enqueueOp, listPending, removeOp, removeSiblingPatchOps } from './outbox-ops'
@@ -167,6 +168,10 @@ export function syncNow(): Promise<void> {
 //   3. Outbox temp-ID tracking
 // ---------------------------------------------------------------------------
 
+let lastPullAt = 0
+let pullInFlight = false
+const PULL_DEDUP_MS = 3000
+
 export async function pullRemoteFull(): Promise<boolean> {
     const key = getReplicaKeyOrNull()
     if (!key || !useAuthStore.getState().token) return false
@@ -177,6 +182,17 @@ export async function pullRemoteFull(): Promise<boolean> {
         useSyncStore.getState().setSyncState({ pendingOutbox: pending.length })
         return false
     }
+
+    // visibilitychange + window-focus + the 30s probe can all fire within the same instant
+    // (e.g. opening devtools toggles both, sometimes repeatedly) — without this, each one runs
+    // a full pull back-to-back, churning collections/workspaces state and re-rendering the whole
+    // app repeatedly. `pullInFlight` closes the gap the timestamp alone misses: a trigger arriving
+    // while a pull's network round-trip is still in progress (so lastPullAt hasn't advanced yet).
+    if (pullInFlight || Date.now() - lastPullAt < PULL_DEDUP_MS) {
+        console.log('[sync] pullRemoteFull: skipped (another pull just ran)')
+        return false
+    }
+    pullInFlight = true
 
     useSyncStore.getState().setSyncState({ lastError: null })
     armPullingIndicator()
@@ -355,6 +371,10 @@ export async function pullRemoteFull(): Promise<boolean> {
                 snap.applyServerCollection(workspaceId, r, { overwriteLocal: true })
                 m.metaCollection[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
             }
+
+            const key = String(workspaceId)
+            const list = m.collectionsByWorkspaceId[key] ?? []
+            m.collectionsByWorkspaceId[key] = sortCollectionsByOrder(list)
         }
 
         for (let i = 0; i < remoteWs.length; i++) {
@@ -471,6 +491,9 @@ export async function pullRemoteFull(): Promise<boolean> {
         disarmPullingIndicator()
         useSyncStore.getState().setSyncState({ lastError: formatRequestError(e) })
         return false
+    } finally {
+        pullInFlight = false
+        lastPullAt = Date.now()
     }
 }
 

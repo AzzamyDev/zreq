@@ -54,6 +54,8 @@
     "closeApp": "Tutup jendela"
   },
   "topBar": {
+    "accountMenu": "Menu akun",
+    "account": "Akun",
     "settingsTitle": "Pengaturan",
     "syncNow": "Sinkron",
     "syncNowTitle": "Tarik dari server dan unggah perubahan lokal",
@@ -68,8 +70,22 @@
     "importTitle": "Impor koleksi",
     "newCollectionTitle": "Koleksi baru",
     "selectWorkspaceFirst": "Pilih workspace dulu",
-    "importFailed": "Impor gagal — pastikan file Postman atau ZReq valid",
-    "importedCollections": "Berhasil impor {{count}} koleksi"
+    "importFailed": "Impor gagal — pastikan file sesuai format yang dipilih",
+    "importedCollections": "Berhasil impor {{count}} koleksi",
+    "searchPlaceholder": "Cari koleksi…"
+  },
+  "import": {
+    "formatDialog": {
+      "collectionTitle": "Impor koleksi",
+      "collectionDescription": "Pilih format sumber untuk file JSON koleksi Anda.",
+      "environmentTitle": "Impor environment",
+      "environmentDescription": "Pilih format sumber untuk file environment Anda.",
+      "formatLabel": "Format sumber",
+      "postman": "Postman",
+      "hoppscotch": "Hoppscotch",
+      "zreq": "ZReq",
+      "continue": "Pilih file"
+    }
   },
   "auth": {
     "appTitle": "ZReq",
@@ -237,10 +253,12 @@
     "renameFolder": "Ubah nama folder",
     "renameRequest": "Ubah nama permintaan",
     "dragToMove": "Seret untuk memindahkan",
+    "dragToReorder": "Seret untuk mengurutkan",
     "moreActions": "Tindakan lainnya",
     "newFolderTitle": "Folder baru",
     "folderNamePlaceholder": "Nama folder",
     "noCollections": "Belum ada koleksi.",
+    "emptyCollection": "Koleksi masih kosong",
     "newCollectionTitle": "Koleksi baru",
     "collectionNamePlaceholder": "Nama koleksi",
     "duplicate": "Duplikat",
@@ -248,10 +266,13 @@
     "orImportCollection": "atau impor koleksi",
     "selectedCount": "{{count}} dipilih",
     "clearSelection": "Hapus pilihan",
+    "selectItems": "Pilih item",
+    "selectItemsHint": "Centang item untuk memilih",
+    "doneSelecting": "Selesai",
     "deleteSelected": "Hapus yang dipilih",
     "deleteSelectedConfirm": "Hapus {{count}} item terpilih? Folder akan menghapus semua isi di dalamnya.",
     "dragToMoveMultiple": "Seret untuk memindahkan {{count}} item",
-    "multiSelectHint": "Ctrl+klik (⌘ di Mac) untuk pilih · Shift+klik rentang · Seret pindahkan semua",
+    "multiSelectHint": "Centang untuk pilih · Shift+klik rentang · Seret pindahkan semua",
     "dropIntoCollection": "Lepas di sini untuk pindah ke koleksi ini"
   },
   "folderSettings": {
@@ -468,7 +489,8 @@
     "enterValue": "Masukkan nilai",
     "addTo": "Tambahkan ke",
     "jsonBodySwitchEnvironment": "Ganti environment",
-    "jsonBodyVariablesLink": "Variabel di permintaan →"
+    "jsonBodyVariablesLink": "Variabel di permintaan →",
+    "switchEnvPrompt": "Variabel sudah ada?"
   },
   "requestTab": {
     "unsaved": "Belum disimpan",

@@ -33,7 +33,15 @@ export type OutboxOp =
           type: 'collection_create'
           workspaceId: number
           tempId: number
-          body: { name: string; items: unknown[]; workspaceId: number; description?: string; auth?: unknown; variables?: unknown[] }
+          body: {
+              name: string
+              items: unknown[]
+              workspaceId: number
+              description?: string
+              auth?: unknown
+              variables?: unknown[]
+              sortOrder?: number
+          }
       })
     | (OutboxOpBase & {
           type: 'collection_delete'

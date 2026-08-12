@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronsUpDown, LayoutGrid, Plus, Settings2 } from 'lucide-react'
+import { ChevronsUpDown, LayoutGrid, Plus, Settings2, Users } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
     Command,
@@ -114,7 +114,7 @@ export default function WorkspaceSwitcher() {
                     )}
                 >
                     <span className="flex min-w-0 items-center gap-1.5">
-                        <LayoutGrid className="size-3.5 shrink-0 opacity-60" />
+                        <Users className="size-3.5 shrink-0 opacity-60" />
                         <span className="truncate">{active?.name ?? t('common.workspace')}</span>
                     </span>
                     <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />

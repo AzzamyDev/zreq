@@ -191,7 +191,7 @@ function AppShell() {
                     defaultLayout={sidebarDefaultLayout}
                     onLayoutChanged={onSidebarLayoutChanged}
                 >
-                    <ResizablePanel id="sidebar" defaultSize="22%" minSize="15%" maxSize="42%">
+                    <ResizablePanel id="sidebar" defaultSize="22%" minSize="15%" maxSize="42%" className="min-h-0 overflow-hidden">
                         <Sidebar />
                     </ResizablePanel>
                     <ResizableHandle withHandle />

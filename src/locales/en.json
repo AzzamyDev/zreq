@@ -54,6 +54,8 @@
     "closeApp": "Close window"
   },
   "topBar": {
+    "accountMenu": "Account menu",
+    "account": "Account",
     "settingsTitle": "Settings",
     "syncNow": "Sync",
     "syncNowTitle": "Pull from server and push local changes",
@@ -68,8 +70,22 @@
     "importTitle": "Import Collection",
     "newCollectionTitle": "New Collection",
     "selectWorkspaceFirst": "Select a workspace first",
-    "importFailed": "Import failed — ensure this is a valid Postman or ZReq collection",
-    "importedCollections": "Imported {{count}} collection(s)"
+    "importFailed": "Import failed — ensure the file matches the selected format",
+    "importedCollections": "Imported {{count}} collection(s)",
+    "searchPlaceholder": "Search collections…"
+  },
+  "import": {
+    "formatDialog": {
+      "collectionTitle": "Import collection",
+      "collectionDescription": "Choose the source format for your collection JSON file.",
+      "environmentTitle": "Import environment",
+      "environmentDescription": "Choose the source format for your environment file.",
+      "formatLabel": "Source format",
+      "postman": "Postman",
+      "hoppscotch": "Hoppscotch",
+      "zreq": "ZReq",
+      "continue": "Choose file"
+    }
   },
   "auth": {
     "appTitle": "ZReq",
@@ -237,10 +253,12 @@
     "renameFolder": "Rename Folder",
     "renameRequest": "Rename Request",
     "dragToMove": "Drag to move",
+    "dragToReorder": "Drag to reorder",
     "moreActions": "More actions",
     "newFolderTitle": "New folder",
     "folderNamePlaceholder": "Folder name",
     "noCollections": "No collections yet.",
+    "emptyCollection": "This collection is empty",
     "newCollectionTitle": "New Collection",
     "collectionNamePlaceholder": "Collection name",
     "duplicate": "Duplicate",
@@ -248,10 +266,13 @@
     "orImportCollection": "or import a collection",
     "selectedCount": "{{count}} selected",
     "clearSelection": "Clear selection",
+    "selectItems": "Select items",
+    "selectItemsHint": "Tap checkboxes to select",
+    "doneSelecting": "Done",
     "deleteSelected": "Delete selected",
     "deleteSelectedConfirm": "Delete {{count}} selected items? Folders will remove all nested content.",
     "dragToMoveMultiple": "Drag to move {{count}} items",
-    "multiSelectHint": "Ctrl+click (⌘ on Mac) to select · Shift+click for range · Drag to move all",
+    "multiSelectHint": "Click checkbox to select · Shift+click for range · Drag to move all",
     "dropIntoCollection": "Drop here to move into this collection"
   },
   "folderSettings": {
@@ -468,7 +489,8 @@
     "enterValue": "Enter value",
     "addTo": "Add to",
     "jsonBodySwitchEnvironment": "Switch environment",
-    "jsonBodyVariablesLink": "Variables in request →"
+    "jsonBodyVariablesLink": "Variables in request →",
+    "switchEnvPrompt": "Variable defined already?"
   },
   "requestTab": {
     "unsaved": "Unsaved",

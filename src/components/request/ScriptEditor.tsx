@@ -1,16 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import CodeMirror from '@uiw/react-codemirror'
-import { javascript } from '@codemirror/lang-javascript'
-import { placeholder as cmPlaceholder } from '@codemirror/view'
 import { BookOpen, XIcon } from 'lucide-react'
-import {
-    appCodeMirrorBodyTooltips,
-    appCodeMirrorChromeTheme,
-    appJavaScriptSyntaxHighlight,
-} from '../../lib/app-codemirror-theme'
-import { scriptPmAutocompletion } from '../../lib/script-pm-autocomplete'
+import AppMonacoEditor from '@/components/editor/AppMonacoEditor'
+import { attachScriptPmCompletion } from '@/lib/monaco-script-pm'
 import { Button } from '@/components/ui/button'
 import {
     Drawer,
@@ -50,6 +43,9 @@ export default function ScriptEditor({
 }: ScriptEditorProps) {
     const { t } = useTranslation()
     const [docsOpen, setDocsOpen] = useState(false)
+    const cleanupRef = useRef<(() => void) | undefined>(undefined)
+
+    useEffect(() => () => cleanupRef.current?.(), [])
 
     const apiRows = useMemo(
         () =>
@@ -75,21 +71,16 @@ export default function ScriptEditor({
         [apiRows, t],
     )
 
-    const extensions = useMemo(() => {
-        const ext = [
-            appCodeMirrorBodyTooltips,
-            javascript({ jsx: false, typescript: false }),
-            appJavaScriptSyntaxHighlight,
-            appCodeMirrorChromeTheme,
-        ]
-        if (placeholder?.trim()) {
-            ext.push(cmPlaceholder(placeholder))
-        }
-        if (docVariant) {
-            ext.push(scriptPmAutocompletion(docVariant, describePm))
-        }
-        return ext
-    }, [docVariant, describePm, placeholder])
+    const handleMount = useCallback(
+        (editor: import('monaco-editor').editor.IStandaloneCodeEditor, monaco: import('@monaco-editor/react').Monaco) => {
+            cleanupRef.current?.()
+            if (docVariant) {
+                const disposable = attachScriptPmCompletion(monaco, docVariant, describePm)
+                cleanupRef.current = () => disposable.dispose()
+            }
+        },
+        [docVariant, describePm],
+    )
 
     const titleKey = docVariant === 'post' ? 'request.scriptDocs.postTitle' : 'request.scriptDocs.preTitle'
     const introKey = docVariant === 'post' ? 'request.scriptDocs.postIntro' : 'request.scriptDocs.preIntro'
@@ -101,33 +92,20 @@ export default function ScriptEditor({
         <div
             className={
                 embedded
-                    ? 'min-h-0 flex-1 overflow-hidden [&_.cm-editor]:flex [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-col [&_.cm-scroller]:min-h-0 [&_.cm-scroller]:flex-1'
+                    ? 'min-h-0 flex-1 overflow-hidden'
                     : 'min-h-[180px] flex-1 overflow-hidden rounded-md border border-border'
             }
         >
-            <CodeMirror
+            <AppMonacoEditor
                 value={value}
                 onChange={onChange}
-                theme="none"
-                height={embedded ? '100%' : undefined}
-                style={embedded ? { height: '100%' } : { height: '100%' }}
-                extensions={extensions}
-                basicSetup={{
-                    lineNumbers: true,
-                    foldGutter: false,
-                    dropCursor: false,
-                    allowMultipleSelections: false,
-                    indentOnInput: true,
-                    bracketMatching: true,
-                    closeBrackets: true,
-                    autocompletion: true,
-                    highlightActiveLine: false,
+                language="javascript"
+                placeholder={placeholder}
+                wrapperClassName="h-full"
+                onMount={handleMount}
+                options={{
+                    wordWrap: 'off',
                 }}
-                className={
-                    embedded
-                        ? 'h-full min-h-0 text-xs [&_.cm-editor]:rounded-none [&_.cm-editor]:text-xs [&_.cm-gutters]:rounded-none'
-                        : undefined
-                }
             />
         </div>
     )

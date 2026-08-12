@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useCollection, type TreeDropPayload } from './useCollection'
 import { useAppStore } from '../store'
-import { findCollectionIdForItem } from '../lib/collection-tree'
+import { findCollectionIdForItem, parseColSortId } from '../lib/collection-tree'
 
 function resolveDragIds(
     sourceCollectionId: number,
@@ -19,7 +19,7 @@ function resolveDragIds(
 }
 
 export function useCollectionTreeDragEnd() {
-    const { transferTreeItems, reorderSiblingsMulti } = useCollection()
+    const { transferTreeItems, reorderSiblingsMulti, reorderCollections } = useCollection()
 
     return useCallback(
         async (e: DragEndEvent) => {
@@ -27,6 +27,16 @@ export function useCollectionTreeDragEnd() {
             if (!over) return
 
             const activeId = String(active.id)
+            const overId = String(over.id)
+
+            const activeColId = parseColSortId(activeId)
+            if (activeColId != null) {
+                const overColId = parseColSortId(overId)
+                if (overColId == null || activeColId === overColId) return
+                await reorderCollections(activeColId, overColId)
+                return
+            }
+
             const collections = useAppStore.getState().collections
             const sourceCollectionId = findCollectionIdForItem(collections, activeId)
             if (sourceCollectionId == null) return
@@ -41,8 +51,8 @@ export function useCollectionTreeDragEnd() {
                 return
             }
 
-            const overId = String(over.id)
             if (activeId === overId) return
+            if (parseColSortId(overId) != null) return
 
             const destCollectionId = findCollectionIdForItem(collections, overId)
             if (destCollectionId == null) return
@@ -57,6 +67,6 @@ export function useCollectionTreeDragEnd() {
 
             await reorderSiblingsMulti(sourceCollectionId, activeId, overId, dragIds)
         },
-        [transferTreeItems, reorderSiblingsMulti]
+        [transferTreeItems, reorderSiblingsMulti, reorderCollections]
     )
 }

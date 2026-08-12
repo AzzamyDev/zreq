@@ -114,6 +114,7 @@ export type Collection = {
     auth?: AuthConfig
     variables?: EnvVariable[]
     items: (Folder | RequestItem)[]
+    sortOrder?: number
     userId: number
     workspaceId: number
     createdAt: string

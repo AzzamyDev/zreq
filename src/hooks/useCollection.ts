@@ -5,13 +5,14 @@ import { nanoid } from 'nanoid'
 import type { Collection, SavedResponse } from '../types'
 import * as snap from '@/lib/local-replica/snapshot-store'
 import {
+    createLocalCollection,
     writeCollectionCreate,
     writeCollectionDelete,
     writeCollectionPatch,
 } from '@/lib/local-replica/local-write'
 import { ensureReplicaLoaded } from '@/lib/local-replica/sync-engine'
 import { collectTopLevelSelectedItems, removeItemsById } from '../lib/collection-tree-select'
-import { findTreeItem, findItemLocation, folderContainsId } from '../lib/collection-tree'
+import { cloneTreeWithNewIds, findTreeItem, findItemLocation, folderContainsId } from '../lib/collection-tree'
 
 export function useCollection() {
     const { collections } = useAppStore()
@@ -22,10 +23,12 @@ export function useCollection() {
         if (wid == null || !user) return
         const tempId = -Math.floor(Math.random() * 1e12 + Date.now())
         const now = new Date().toISOString()
+        const sortOrder = Math.max(-1, ...collections.map((c) => c.sortOrder ?? -1)) + 1
         const col: Collection = {
             id: tempId,
             name,
             items: [],
+            sortOrder,
             userId: user.id,
             workspaceId: wid,
             createdAt: now,
@@ -37,7 +40,7 @@ export function useCollection() {
         snap.applyMemory((mem) => {
             mem.metaCollection[tempId] = { serverUpdatedAt: now, dirty: false }
         })
-        await writeCollectionCreate(tempId, { name, items: [], workspaceId: wid })
+        await writeCollectionCreate(tempId, { name, items: [], workspaceId: wid, sortOrder })
         return col
     }
 
@@ -187,7 +190,8 @@ export function useCollection() {
         function duplicateInTree(arr: any[]): boolean {
             for (let i = 0; i < arr.length; i++) {
                 if (arr[i].id === itemId) {
-                    const copy = { ...structuredClone(arr[i]), id: nanoid(), name: arr[i].name + ' (copy)' }
+                    const copy = cloneTreeWithNewIds(arr[i])
+                    copy.name = `${arr[i].name} (copy)`
                     arr.splice(i + 1, 0, copy)
                     return true
                 }
@@ -204,6 +208,39 @@ export function useCollection() {
         const wid = useAppStore.getState().activeWorkspaceId
         if (wid != null) snap.setWorkspaceSlice(wid, useAppStore.getState().collections)
         await writeCollectionPatch(collectionId, { items })
+    }
+
+    const duplicateCollection = async (collectionId: number) => {
+        const collection = collections.find((c) => c.id === collectionId)
+        if (!collection) return
+        const items = (collection.items || []).map(cloneTreeWithNewIds)
+        return createLocalCollection(`${collection.name} (copy)`, items, {
+            description: collection.description,
+            auth: collection.auth ? structuredClone(collection.auth) : undefined,
+            variables: collection.variables ? structuredClone(collection.variables) : undefined,
+        })
+    }
+
+    const reorderCollections = async (activeCollectionId: number, overCollectionId: number) => {
+        if (activeCollectionId === overCollectionId) return
+        const list = [...useAppStore.getState().collections]
+        const from = list.findIndex((c) => c.id === activeCollectionId)
+        const to = list.findIndex((c) => c.id === overCollectionId)
+        if (from < 0 || to < 0) return
+        const [moved] = list.splice(from, 1)
+        list.splice(to, 0, moved!)
+        const next = list.map((c, i) => ({ ...c, sortOrder: i }))
+        const changed = next.filter((c) => {
+            const prev = collections.find((p) => p.id === c.id)
+            return prev == null || (prev.sortOrder ?? -1) !== c.sortOrder
+        })
+        useAppStore.getState().setCollections(next)
+        await ensureReplicaLoaded()
+        const wid = useAppStore.getState().activeWorkspaceId
+        if (wid != null) snap.setWorkspaceSlice(wid, next)
+        for (const c of changed) {
+            await writeCollectionPatch(c.id, { sortOrder: c.sortOrder })
+        }
     }
 
     const persistRequestItem = useCallback(
@@ -539,6 +576,8 @@ export function useCollection() {
         renameCollection,
         deleteCollection,
         duplicateItem,
+        duplicateCollection,
+        reorderCollections,
         addRequest,
         addWebSocketRequest,
         updateCollectionSettings,

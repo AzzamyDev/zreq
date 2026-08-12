@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import CodeMirror from '@uiw/react-codemirror'
-import { json } from '@codemirror/lang-json'
-import { indentUnit } from '@codemirror/language'
-import { EditorState } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
-import { JSON_INDENT, jsonEditorIndentExtensions, jsonEditorViewChrome } from '../../lib/json-codemirror-setup'
+import { JSON_INDENT } from '@/lib/json-editor-constants'
 import { BookmarkPlus, Braces, ChevronDown, Code2, FileCode2, FileText, Hash, SquareCode } from 'lucide-react'
-import { appCodeMirrorChromeTheme, appJsonSyntaxHighlight } from '../../lib/app-codemirror-theme'
+import AppMonacoEditor from '@/components/editor/AppMonacoEditor'
 import { Button } from '../ui/button'
 import {
     DropdownMenu,
@@ -98,6 +93,14 @@ function buildSourceText(format: ResponseBodyFormat, body: string, contentType?:
     return body
 }
 
+function monacoLanguageForFormat(format: ResponseBodyFormat): string {
+    if (format === 'json') return 'json'
+    if (format === 'xml') return 'xml'
+    if (format === 'html') return 'html'
+    if (format === 'javascript') return 'javascript'
+    return 'plaintext'
+}
+
 export default function ResponseBody({ body, contentType, onSaveResponse }: ResponseBodyProps) {
     const { t } = useTranslation()
     const [format, setFormat] = useState<ResponseBodyFormat>(() => inferResponseFormat(contentType, body))
@@ -112,28 +115,7 @@ export default function ResponseBody({ body, contentType, onSaveResponse }: Resp
     }, [body, contentType])
 
     const sourceText = useMemo(() => buildSourceText(format, body, contentType), [format, body, contentType])
-
-    const jsonExtensions = useMemo(
-        () => [
-            appCodeMirrorChromeTheme,
-            jsonEditorViewChrome,
-            ...jsonEditorIndentExtensions,
-            json(),
-            appJsonSyntaxHighlight,
-        ],
-        [],
-    )
-
-    const plainExtensions = useMemo(
-        () => [
-            appCodeMirrorChromeTheme,
-            jsonEditorViewChrome,
-            EditorState.tabSize.of(4),
-            indentUnit.of(JSON_INDENT),
-            EditorView.lineWrapping,
-        ],
-        [],
-    )
+    const monacoLanguage = useMemo(() => monacoLanguageForFormat(format), [format])
 
     const copyTarget = useMemo(() => {
         if (format === 'html' && htmlView === 'preview') return body
@@ -171,9 +153,7 @@ export default function ResponseBody({ body, contentType, onSaveResponse }: Resp
 
     const FmtIcon = formatMeta[format].icon
 
-    const showCodeMirror = !empty && !(format === 'html' && htmlView === 'preview')
-
-    const useJsonHighlight = format === 'json' && tryPrettyJson(body) !== null
+    const showMonaco = !empty && !(format === 'html' && htmlView === 'preview')
 
     return (
         <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
@@ -310,25 +290,19 @@ export default function ResponseBody({ body, contentType, onSaveResponse }: Resp
                         sandbox="allow-same-origin allow-scripts allow-forms"
                         className="h-full min-h-[240px] w-full border-0 bg-background"
                     />
-                ) : showCodeMirror ? (
-                    <div className="h-full min-h-0 overflow-hidden [&_.cm-editor]:flex [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-col [&_.cm-scroller]:min-h-0 [&_.cm-scroller]:flex-1">
-                        <CodeMirror
-                            key={`${format}-${body.length}`}
-                            value={sourceText}
-                            theme="none"
-                            height="100%"
-                            editable={false}
-                            extensions={useJsonHighlight ? jsonExtensions : plainExtensions}
-                            basicSetup={{
-                                lineNumbers: true,
-                                foldGutter: useJsonHighlight,
-                                highlightActiveLine: false,
-                                dropCursor: false,
-                                allowMultipleSelections: false,
-                            }}
-                            className="json-body-cm h-full min-h-0 text-xs [&_.cm-editor]:h-full [&_.cm-editor]:min-h-0 [&_.cm-editor]:text-xs [&_.cm-editor]:rounded-none [&_.cm-scroller]:font-mono"
-                        />
-                    </div>
+                ) : showMonaco ? (
+                    <AppMonacoEditor
+                        key={`${format}-${body.length}`}
+                        value={sourceText}
+                        language={monacoLanguage}
+                        readOnly
+                        wrapperClassName="h-full"
+                        className="json-body-monaco"
+                        options={{
+                            wordWrap: format === 'raw' || format === 'hex' || format === 'base64' ? 'on' : 'off',
+                            folding: format === 'json',
+                        }}
+                    />
                 ) : null}
             </div>
         </div>

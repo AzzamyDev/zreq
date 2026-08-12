@@ -29,7 +29,8 @@ import { cn } from '@/lib/utils'
 import { useAppStore } from '../../store'
 import { useSyncStore } from '../../store/syncStore'
 import { useEnvironment } from '../../hooks/useEnvironment'
-import { importEnvironments, exportEnvironment } from '../../lib/importExport'
+import { importEnvironments, exportEnvironment, type ImportFormat } from '../../lib/importExport'
+import ImportFormatDialog from '../collection/ImportFormatDialog'
 import { saveTextFile } from '../../lib/utils'
 import type { KV } from '../../types'
 import { toast } from 'sonner'
@@ -83,9 +84,11 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
     const [envListQuery, setEnvListQuery] = useState('')
     const [importError, setImportError] = useState<string | null>(null)
     const [isImporting, setIsImporting] = useState(false)
+    const [importFormatDialogOpen, setImportFormatDialogOpen] = useState(false)
     const [saveNotice, setSaveNotice] = useState<'success' | 'error' | null>(null)
     const [persistedVarsSig, setPersistedVarsSig] = useState<string | null>(null)
     const importInputRef = useRef<HTMLInputElement>(null)
+    const importFormatRef = useRef<ImportFormat>('postman')
     const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const selectAllVarsRef = useRef<HTMLInputElement>(null)
     const draftRowRef = useRef({ key: '', value: '' })
@@ -385,7 +388,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
             const importedRows: Array<{ name: string; variables: Array<{ key: string; value: string; enabled: boolean }> }> = []
             for (const file of list) {
                 const text = await file.text()
-                importedRows.push(...importEnvironments(text))
+                importedRows.push(...importEnvironments(text, importFormatRef.current))
             }
 
             if (importedRows.length === 0) {
@@ -438,6 +441,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
     const enabledVarCount = localVars.filter((v) => v.enabled).length
 
     return (
+        <>
         <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
             <DialogContent
                 className="env-manager-dialog !flex h-[min(88vh,720px)] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden rounded-xl border border-border/80 bg-card p-0 ring-1 ring-border/40 sm:max-w-5xl"
@@ -547,7 +551,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                 size="sm"
                                 className="h-8 w-full justify-start gap-2 text-xs hover:bg-[var(--sidebar-row-hover)]"
                                 disabled={isImporting}
-                                onClick={() => importInputRef.current?.click()}
+                                onClick={() => setImportFormatDialogOpen(true)}
                                 title={t('environment.importTitle')}
                             >
                                 {isImporting ? (
@@ -916,5 +920,15 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                 </div>
             </DialogContent>
         </Dialog>
+        <ImportFormatDialog
+            open={importFormatDialogOpen}
+            onClose={() => setImportFormatDialogOpen(false)}
+            onConfirm={(format) => {
+                importFormatRef.current = format
+                requestAnimationFrame(() => importInputRef.current?.click())
+            }}
+            kind="environment"
+        />
+        </>
     )
 }
