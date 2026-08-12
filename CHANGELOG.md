@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0](https://github.com/AzzamyDev/zreq/compare/v1.1.0...v1.2.0) (2026-08-12)
+
+
+### Features
+
+* add saved responses functionality and UI components ([d4feaeb](https://github.com/AzzamyDev/zreq/commit/d4feaeb93ff217ba26f0dce68a7b17ae02d73041))
+* implement macOS window chrome and fullscreen support ([0950eac](https://github.com/AzzamyDev/zreq/commit/0950eac17287a1a9e2a4a69863eb8b596735c1b0))
+* integrate Monaco editor and enhance collection management features ([75e7823](https://github.com/AzzamyDev/zreq/commit/75e7823f661debb66ded5b2faf98407613a25312))
+* update OAuth redirect handling in SettingsDialog and MCP presets ([daeccc8](https://github.com/AzzamyDev/zreq/commit/daeccc821ea0fbec6a9ae873b8a33f6c62f3eebe))
+
+
+### Bug Fixes
+
+* align Tauri Rust 2.11 with npm API and pin pnpm ([5a5ccc2](https://github.com/AzzamyDev/zreq/commit/5a5ccc29b4309feb21caa031da06e5cd207332fc))
+* allow esbuild build scripts for pnpm 11 CI ([2de6b51](https://github.com/AzzamyDev/zreq/commit/2de6b51b0b4e5fa5ab274592405657df690f1dc0))
+* bump CI Node to 22 for pnpm 11 compatibility ([4f15dba](https://github.com/AzzamyDev/zreq/commit/4f15dba785f1e3f5ec5c3bb4024d5d9ed594ac7a))
+
 ## [1.3.0](https://github.com/AzzamyDev/zreq/compare/v1.2.0...v1.3.0) (2026-08-13)
 
 
