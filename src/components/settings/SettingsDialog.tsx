@@ -764,9 +764,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                                     onClick={() => {
                                                         setFormPurpose(p.purpose)
                                                         setFormClientName(p.client_name)
-                                                        setFormRedirectText(p.redirect_uri)
-                                                        // Cursor / Claude use PKCE public clients — mcp.json only has CLIENT_ID.
-                                                        setFormAuthMethod('none')
+                                                        setFormRedirectText(p.redirect_uris.join('\n'))
+                                                        setFormAuthMethod(p.token_endpoint_auth_method)
                                                     }}
                                                 >
                                                     {p.purpose}

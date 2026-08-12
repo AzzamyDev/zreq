@@ -4,13 +4,18 @@ export const MCP_AGENT_PRESETS = [
         id: 'cursor',
         purpose: 'Cursor',
         client_name: 'ZReq MCP — Cursor',
-        redirect_uri: 'cursor://anysphere.cursor-mcp/oauth/callback'
+        redirect_uris: [
+            'https://www.cursor.com/agents/mcp/oauth/callback',
+            'http://localhost:8787/callback'
+        ],
+        token_endpoint_auth_method: 'none' as const
     },
     {
         id: 'claude',
         purpose: 'Claude',
         client_name: 'ZReq MCP — Claude',
-        redirect_uri: 'https://claude.ai/api/mcp/auth_callback'
+        redirect_uris: ['https://claude.ai/api/mcp/auth_callback'],
+        token_endpoint_auth_method: 'client_secret_basic' as const
     }
 ] as const
 
