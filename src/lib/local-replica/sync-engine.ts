@@ -12,7 +12,7 @@ import { normalizeEnvVarsForDiff, stableStringify } from '@/lib/conflict-diff'
 import { sortCollectionsByOrder } from '@/lib/collection-tree'
 import { makeReplicaKey } from './replica-key'
 import * as snap from './snapshot-store'
-import { enqueueOp, listPending, removeOp, removeSiblingPatchOps } from './outbox-ops'
+import { enqueueOp, listPending, removeOp, removeSiblingOutboxOps, removeSiblingPatchOps } from './outbox-ops'
 import type { ConflictEntry, OutboxOp } from './types'
 import { shouldDebouncePushAfterLocalEdit } from '@/lib/sync-preferences'
 
@@ -97,7 +97,10 @@ function getHttpStatus(e: unknown): number | null {
 
 function isPermanentOutboxError(e: unknown): boolean {
     const status = getHttpStatus(e)
-    return status === 400 || status === 403 || status === 404 || status === 409
+    // 409 is intentionally excluded: a parseable 409 is handled as STALE_VERSION above;
+    // an unparseable 409 should preserve the op and surface an error instead of silently
+    // dropping the change.
+    return status === 400 || status === 403 || status === 404
 }
 
 function environmentContentMatchesServer(local: Environment | null | undefined, remote: Environment): boolean {
@@ -194,7 +197,8 @@ export async function pullRemoteFull(): Promise<boolean> {
     }
     pullInFlight = true
 
-    useSyncStore.getState().setSyncState({ lastError: null })
+    // Do NOT eagerly clear lastError here — a push failure in the same cycle may have set it.
+    // Clearing is deferred to the success handler where we can check the outbox state.
     armPullingIndicator()
 
     try {
@@ -340,6 +344,22 @@ export async function pullRemoteFull(): Promise<boolean> {
                 const meta = m.metaCollection[r.id]
                 const hasPendingPatch = pendingColPatchIds.has(r.id)
 
+                // A push-phase STALE_VERSION may have raised a conflict AND removed the outbox op
+                // in the same cycle. The entity then has no pending patch flag, so the normal
+                // hasPendingPatch guard below is bypassed. Check the live conflict store to
+                // preserve the local shadow until the user resolves the ConflictDialog.
+                const hasOpenConflict = useSyncStore.getState().conflicts.some(
+                    (c) => c.kind === 'collection' && c.entityId === r.id
+                )
+                if (hasOpenConflict) {
+                    m.metaCollection[r.id] = {
+                        serverUpdatedAt: r.updatedAt,
+                        dirty: meta?.dirty ?? true,
+                        baseServerUpdatedAt: meta?.baseServerUpdatedAt ?? meta?.serverUpdatedAt,
+                    }
+                    continue
+                }
+
                 if (hasPendingPatch && meta?.dirty) {
                     const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
                     if (r.updatedAt !== base) {
@@ -354,8 +374,16 @@ export async function pullRemoteFull(): Promise<boolean> {
                                 local: localCol ?? null,
                                 server: r,
                             })
+                            // Keep the local dirty copy in the snapshot; do NOT overwrite
+                            // with the server version until the user resolves the conflict.
+                            m.metaCollection[r.id] = {
+                                serverUpdatedAt: r.updatedAt,
+                                dirty: true,
+                                baseServerUpdatedAt: meta.baseServerUpdatedAt ?? meta.serverUpdatedAt,
+                            }
+                            continue
                         }
-                        // Fall through: apply server version so user sees conflict state
+                        // Content is identical to server — safe to accept their timestamp.
                     } else {
                         // Server unchanged since edit started — keep local version.
                         // Only refresh serverUpdatedAt; push phase will send the patch.
@@ -394,6 +422,25 @@ export async function pullRemoteFull(): Promise<boolean> {
                 const meta = m.metaEnv[r.id]
                 const hasPendingPatch = pendingEnvPatchIds.has(r.id)
 
+                // Same guard as for collections: push-phase STALE may have removed the outbox op
+                // while raising a conflict. Without this, pull would overwrite the local shadow.
+                const hasOpenConflict = useSyncStore.getState().conflicts.some(
+                    (c) => c.kind === 'environment' && c.entityId === r.id
+                )
+                if (hasOpenConflict) {
+                    nextEnvs.push(
+                        (m.environmentsByWorkspaceId[key] ?? []).find((e) => e.id === r.id)
+                            ?? (liveActive ? useAppStore.getState().environments.find((e) => e.id === r.id) : undefined)
+                            ?? r
+                    )
+                    m.metaEnv[r.id] = {
+                        serverUpdatedAt: r.updatedAt,
+                        dirty: meta?.dirty ?? true,
+                        baseServerUpdatedAt: meta?.baseServerUpdatedAt ?? meta?.serverUpdatedAt,
+                    }
+                    continue
+                }
+
                 if (hasPendingPatch && meta?.dirty) {
                     const base = meta.baseServerUpdatedAt ?? meta.serverUpdatedAt
                     if (r.updatedAt !== base) {
@@ -409,7 +456,17 @@ export async function pullRemoteFull(): Promise<boolean> {
                                 local: local ?? null,
                                 server: r,
                             })
+                            // Keep the local dirty copy; do NOT replace it with the server
+                            // version until the user resolves the conflict.
+                            nextEnvs.push(local ?? r)
+                            m.metaEnv[r.id] = {
+                                serverUpdatedAt: r.updatedAt,
+                                dirty: true,
+                                baseServerUpdatedAt: meta.baseServerUpdatedAt ?? meta.serverUpdatedAt,
+                            }
+                            continue
                         }
+                        // Content is identical to server — safe to accept their timestamp.
                     } else {
                         const localList = m.environmentsByWorkspaceId[key] ?? []
                         const localEnv =
@@ -482,7 +539,9 @@ export async function pullRemoteFull(): Promise<boolean> {
         disarmPullingIndicator()
         useSyncStore.getState().setSyncState({
             lastSyncedAt: m.lastSyncedAt,
-            lastError: null,
+            // Only clear lastError if the outbox is fully drained. If ops remain the error
+            // likely came from a push failure in the same cycle and must stay visible.
+            ...(pending.length === 0 ? { lastError: null } : {}),
             pendingOutbox: pending.length,
         })
         return true
@@ -691,6 +750,56 @@ async function trySelfStaleRetry(op: OutboxOp, serverEntity: unknown): Promise<b
         }
     }
     return false
+}
+
+/**
+ * A patch op returned 404 — the entity was deleted by a peer while local edits were queued.
+ * Prune the entity from local state, remove sibling ops for it, and notify the user via toast.
+ * The caller still calls `removeOp(op.id)` after this returns.
+ */
+async function handlePatch404(op: OutboxOp) {
+    if (op.type === 'collection_patch') {
+        const local =
+            useAppStore.getState().activeWorkspaceId === op.workspaceId
+                ? useAppStore.getState().collections.find((c) => c.id === op.collectionId)
+                : snap.getWorkspaceSlice(op.workspaceId).find((c) => c.id === op.collectionId)
+        const name = local?.name ?? String(op.collectionId)
+        snap.removeCollectionLocal(op.workspaceId, op.collectionId)
+        if (useAppStore.getState().activeWorkspaceId === op.workspaceId) {
+            useAppStore.getState().removeCollection(op.collectionId)
+        }
+        await snap.persistSnapshotNow()
+        await removeSiblingOutboxOps(op.replicaKey, 'collection', op.collectionId, {
+            includeDeletes: true,
+            exceptOpId: op.id,
+        })
+        toast.info(i18n.t('sync.deletedRemotelyToast', { name }))
+    } else if (op.type === 'environment_patch') {
+        const wid = op.workspaceId
+        const local =
+            useAppStore.getState().activeWorkspaceId === wid
+                ? useAppStore.getState().environments.find((e) => e.id === op.environmentId)
+                : snap.getWorkspaceEnvSlice(wid).find((e) => e.id === op.environmentId)
+        const name = local?.name ?? String(op.environmentId)
+        snap.removeEnvironmentLocal(wid, op.environmentId)
+        if (useAppStore.getState().activeWorkspaceId === wid) {
+            useAppStore.getState().removeEnvironment(op.environmentId)
+        }
+        await snap.persistSnapshotNow()
+        await removeSiblingOutboxOps(op.replicaKey, 'environment', op.environmentId, {
+            includeDeletes: true,
+            exceptOpId: op.id,
+        })
+        toast.info(i18n.t('sync.deletedRemotelyToast', { name }))
+    } else if (op.type === 'workspace_patch') {
+        const local = useAppStore.getState().workspaces.find((w) => w.id === op.workspaceId)
+        const name = local?.name ?? String(op.workspaceId)
+        await removeSiblingOutboxOps(op.replicaKey, 'workspace', op.workspaceId, {
+            includeDeletes: true,
+            exceptOpId: op.id,
+        })
+        toast.info(i18n.t('sync.deletedRemotelyToast', { name }))
+    }
 }
 
 async function handleStale409(op: OutboxOp, serverEntity: unknown) {
@@ -1058,6 +1167,16 @@ export async function pushOutbox(): Promise<void> {
                     await removeOp(op.id)
                 }
             } else if (isPermanentOutboxError(e)) {
+                // For 404 on patch ops, the resource was deleted by a peer.
+                // Prune local state + notify the user instead of silently dropping.
+                if (
+                    isNotFound(e) &&
+                    (op.type === 'collection_patch' ||
+                        op.type === 'environment_patch' ||
+                        op.type === 'workspace_patch')
+                ) {
+                    await handlePatch404(op)
+                }
                 // Permanent API errors should not block the rest of the queue.
                 await removeOp(op.id)
                 useSyncStore.getState().setSyncState({ lastError: formatRequestError(e) })

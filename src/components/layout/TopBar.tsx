@@ -44,6 +44,8 @@ export default function TopBar() {
     const pendingOutbox = useSyncStore((s) => s.pendingOutbox)
     const pushing = useSyncStore((s) => s.pushing)
     const online = useSyncStore((s) => s.online)
+    const lastError = useSyncStore((s) => s.lastError)
+    const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt)
     const [profileOpen, setProfileOpen] = useState(false)
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [signOutOpen, setSignOutOpen] = useState(false)
@@ -111,9 +113,18 @@ export default function TopBar() {
                     disabled={!user || !online || isRemoteSyncBlocked() || pushing}
                     className="relative min-w-[100px] cursor-pointer inline-flex h-6 items-center justify-center gap-1 rounded-md border border-border bg-muted/30 px-2 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                     title={
-                        pendingOutbox > 0
-                            ? t('topBar.syncNowTitlePending', { count: pendingOutbox })
-                            : t('topBar.syncNowTitle')
+                        lastError
+                            ? `${t('topBar.syncNowTitle')} — ${lastError}`
+                            : pendingOutbox > 0
+                              ? t('topBar.syncNowTitlePending', { count: pendingOutbox })
+                              : lastSyncedAt != null
+                                ? t('topBar.syncNowTitleSynced', {
+                                      time: new Date(lastSyncedAt).toLocaleTimeString(undefined, {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                      }),
+                                  })
+                                : t('topBar.syncNowTitle')
                     }
                 >
                     <CloudUpload className="h-3.5 w-3.5 shrink-0" aria-hidden />

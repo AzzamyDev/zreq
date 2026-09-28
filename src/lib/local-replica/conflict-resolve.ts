@@ -1,11 +1,34 @@
 import { apiClient } from '@/lib/api-client'
 import { useAppStore } from '@/store'
+import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
 import type { Collection, Environment, Workspace } from '@/types'
 import * as snap from './snapshot-store'
 import { removeOp, removeSiblingOutboxOps } from './outbox-ops'
 import type { ConflictEntry } from './types'
 import { getReplicaKeyOrNull, pullThenPush } from './sync-engine'
+
+/**
+ * Extract `updatedAt` from the server snapshot stored in a ConflictEntry.
+ * This is the optimistic-lock token the server requires on every "keep local" PATCH.
+ */
+function getServerUpdatedAt(c: ConflictEntry): string | undefined {
+    const srv = c.server
+    if (!srv || typeof srv !== 'object') return undefined
+    return (srv as Record<string, unknown>).updatedAt as string | undefined
+}
+
+/**
+ * Returns true when the current user is the owner of the workspace.
+ * Only owners may send `force: true`; members must omit it.
+ */
+function isWorkspaceOwner(workspaceId: number | undefined | null): boolean {
+    if (workspaceId == null) return false
+    const currentUserId = useAuthStore.getState().user?.id
+    if (currentUserId == null) return false
+    const ws = useAppStore.getState().workspaces.find((w) => w.id === workspaceId)
+    return ws?.userId === currentUserId
+}
 
 async function removeSiblingOutboxOpsForConflict(c: ConflictEntry) {
     const key = getReplicaKeyOrNull()
@@ -57,7 +80,13 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
             useSyncStore.getState().removeConflict(c.id)
             return
         }
-        const body: Record<string, unknown> = { force: true }
+        const body: Record<string, unknown> = {
+            // Server requires expectedUpdatedAt on every PATCH (returns 400 without it).
+            expectedUpdatedAt: getServerUpdatedAt(c),
+            // force:true lets the server skip its RBAC ownership check, but only
+            // the workspace owner is allowed to send it.
+            ...(isWorkspaceOwner(c.workspaceId) ? { force: true } : {}),
+        }
         if (local.name != null) body.name = local.name
         if (local.items != null) body.items = local.items
         const res = await apiClient.patch<{ data: Collection }>(`/collections/${c.entityId}`, body)
@@ -77,7 +106,8 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
         }
         const res = await apiClient.patch<{ data: Workspace }>(`/workspaces/${c.entityId}`, {
             name: local.name,
-            force: true,
+            expectedUpdatedAt: getServerUpdatedAt(c),
+            ...(isWorkspaceOwner(c.entityId) ? { force: true } : {}),
         })
         const srv = structuredClone(res.data.data)
         snap.clearDirtyMeta('workspace', srv.id, srv.updatedAt)
@@ -95,13 +125,15 @@ export async function resolveConflictKeepLocal(c: ConflictEntry) {
             useSyncStore.getState().removeConflict(c.id)
             return
         }
+        const envWid = c.workspaceId ?? local.workspaceId ?? (c.server as Environment | null)?.workspaceId
         const res = await apiClient.patch<{ data: Environment }>(`/environments/${c.entityId}`, {
             name: local.name,
             variables: local.variables,
-            force: true,
+            expectedUpdatedAt: getServerUpdatedAt(c),
+            ...(isWorkspaceOwner(envWid) ? { force: true } : {}),
         })
         const srv = res.data.data
-        const wid = c.workspaceId ?? local.workspaceId ?? srv.workspaceId
+        const wid = envWid ?? srv.workspaceId
         snap.clearDirtyMeta('environment', srv.id, srv.updatedAt)
         snap.applyServerEnvironment(wid, srv, { overwriteLocal: true })
         if (useAppStore.getState().activeWorkspaceId === wid) {
