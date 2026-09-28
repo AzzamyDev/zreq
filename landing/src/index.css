@@ -1,0 +1,45 @@
+/* ── Global reset & design tokens ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Palette */
+  --bg-start:   #0f1623;
+  --bg-end:     #090d18;
+  --border:     #1a2744;
+  --accent-hi:  #4f8fff;
+  --accent:     #3b82f6;
+  --accent-lo:  #2563eb;
+  --text:       #f1f5f9;
+  --muted:      #8298b8;
+  --card-bg:    rgba(15, 22, 35, 0.65);
+  --radius:     14px;
+
+  /* Spacing tokens */
+  --sp-nav-hero:    48px;
+  --sp-h1-sub:      24px;
+  --sp-sub-cta:     20px;
+  --sp-cta-link:    28px;
+  --sp-chips-gap:   12px;
+  --sp-hero-gap:    40px;
+  --sp-section:     clamp(4rem, 6vw, 5rem); /* 64–80px */
+  --sp-cards-gap:   24px;
+  --sp-card-pad:    24px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: linear-gradient(160deg, var(--bg-start) 0%, var(--bg-end) 100%);
+  background-attachment: fixed;
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}

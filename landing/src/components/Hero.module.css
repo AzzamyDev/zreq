@@ -1,0 +1,132 @@
+.hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-hero-gap);         /* 40px — chips → preview column gap */
+  align-items: center;
+  padding: var(--sp-nav-hero) clamp(1.25rem, 5vw, 5rem) var(--sp-section);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ── Copy column ── */
+.copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-hi);
+  background: rgba(79, 143, 255, 0.12);
+  border: 1px solid rgba(79, 143, 255, 0.25);
+  border-radius: 100px;
+  padding: 4px 12px;
+}
+
+.headline {
+  margin-top: 16px;
+  font-size: clamp(2rem, 4.5vw, 3rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.sub {
+  margin-top: var(--sp-h1-sub);    /* 24px — headline → sub */
+  font-size: clamp(1rem, 1.5vw, 1.15rem);
+  color: var(--muted);
+  max-width: 44ch;
+}
+
+/* ── CTA chips group ── */
+.chips {
+  margin-top: var(--sp-sub-cta);   /* 20px — sub → CTA */
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-chips-gap);        /* 12px — between chips */
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--border);
+  background: rgba(26, 39, 68, 0.5);
+  color: var(--muted);
+  transition: border-color 0.2s, background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.chipActive {
+  background: var(--accent-lo);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 4px 16px rgba(37, 99, 235, 0.35);
+}
+
+.chipActive:hover {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3), 0 6px 20px rgba(37, 99, 235, 0.45);
+}
+
+.chip svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.chipLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chipSub {
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.75;
+  line-height: 1;
+}
+
+/* ── Releases link ── */
+.releasesLink {
+  margin-top: var(--sp-cta-link);  /* 28px — CTA → releases link */
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.releasesLink:hover {
+  color: var(--accent-hi);
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .preview {
+    order: -1;
+  }
+}
