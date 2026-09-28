@@ -19,6 +19,8 @@ type SyncStore = SyncUiState & {
     addConflict: (c: ConflictEntry) => void
     removeConflict: (id: string) => void
     clearConflicts: () => void
+    /** Reset all sync UI state on logout / account switch. */
+    reset: () => void
 }
 
 const initial: SyncUiState = {
@@ -53,4 +55,11 @@ export const useSyncStore = create<SyncStore>()((set) => ({
         })),
 
     clearConflicts: () => set({ conflicts: [] }),
+
+    reset: () =>
+        set({
+            ...initial,
+            // Preserve the live browser-online flag; everything else resets.
+            online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+        }),
 }))

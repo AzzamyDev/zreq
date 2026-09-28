@@ -681,6 +681,7 @@
     "syncing": "Menyinkronkan…",
     "pending": "{{count}} menunggu",
     "lastSyncedAt": "Disinkron pukul {{time}}",
+    "deletedRemotelyToast": "\"{{name}}\" dihapus oleh pengguna lain — perubahan lokal dibuang.",
     "conflictToast": "Konflik sinkron — pilih lokal atau server di dialog.",
     "conflictTitle": "Konflik sinkron",
     "conflictDescription": "Versi lokal dan server berbeda. Pilih yang akan dipakai.",

@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { setCurrentReplicaKey } from '@/lib/local-replica/snapshot-store'
+import { useSyncStore } from '@/store/syncStore'
+import { useAppStore } from '@/store'
 
 interface User {
     id: number
@@ -48,6 +50,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
         setCurrentReplicaKey(null)
         localStorage.removeItem(TOKEN_KEY)
         localStorage.removeItem(USER_KEY)
+        // Clear in-memory sync state so stale workspaces/collections/conflicts from the
+        // previous account never bleed into the next session on the same machine.
+        useSyncStore.getState().reset()
+        useAppStore.getState().resetRemoteSessionState()
         set({ token: null, user: null, isAuthenticated: false })
     },
 }))

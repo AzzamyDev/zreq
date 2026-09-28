@@ -681,6 +681,7 @@
     "syncing": "Syncing…",
     "pending": "{{count}} pending",
     "lastSyncedAt": "Synced at {{time}}",
+    "deletedRemotelyToast": "\"{{name}}\" was deleted by another user — local edits discarded.",
     "conflictToast": "Sync conflict — choose local or server in the dialog.",
     "conflictTitle": "Sync conflict",
     "conflictDescription": "Local and server versions differ. Choose which to keep.",
