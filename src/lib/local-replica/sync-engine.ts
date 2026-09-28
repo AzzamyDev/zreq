@@ -97,7 +97,10 @@ function getHttpStatus(e: unknown): number | null {
 
 function isPermanentOutboxError(e: unknown): boolean {
     const status = getHttpStatus(e)
-    return status === 400 || status === 403 || status === 404 || status === 409
+    // 409 is intentionally excluded: a parseable 409 is handled as STALE_VERSION above;
+    // an unparseable 409 should preserve the op and surface an error instead of silently
+    // dropping the change.
+    return status === 400 || status === 403 || status === 404
 }
 
 function environmentContentMatchesServer(local: Environment | null | undefined, remote: Environment): boolean {
@@ -354,8 +357,16 @@ export async function pullRemoteFull(): Promise<boolean> {
                                 local: localCol ?? null,
                                 server: r,
                             })
+                            // Keep the local dirty copy in the snapshot; do NOT overwrite
+                            // with the server version until the user resolves the conflict.
+                            m.metaCollection[r.id] = {
+                                serverUpdatedAt: r.updatedAt,
+                                dirty: true,
+                                baseServerUpdatedAt: meta.baseServerUpdatedAt ?? meta.serverUpdatedAt,
+                            }
+                            continue
                         }
-                        // Fall through: apply server version so user sees conflict state
+                        // Content is identical to server — safe to accept their timestamp.
                     } else {
                         // Server unchanged since edit started — keep local version.
                         // Only refresh serverUpdatedAt; push phase will send the patch.
@@ -409,7 +420,17 @@ export async function pullRemoteFull(): Promise<boolean> {
                                 local: local ?? null,
                                 server: r,
                             })
+                            // Keep the local dirty copy; do NOT replace it with the server
+                            // version until the user resolves the conflict.
+                            nextEnvs.push(local ?? r)
+                            m.metaEnv[r.id] = {
+                                serverUpdatedAt: r.updatedAt,
+                                dirty: true,
+                                baseServerUpdatedAt: meta.baseServerUpdatedAt ?? meta.serverUpdatedAt,
+                            }
+                            continue
                         }
+                        // Content is identical to server — safe to accept their timestamp.
                     } else {
                         const localList = m.environmentsByWorkspaceId[key] ?? []
                         const localEnv =

@@ -2,6 +2,10 @@ import { useTranslation } from 'react-i18next'
 import { useSyncStore } from '@/store/syncStore'
 import { useAuthStore } from '@/store/authStore'
 
+function formatSyncTime(ts: number): string {
+    return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 /** Sync status only; background sync runs automatically. */
 export default function SyncStatusStrip() {
     const { t } = useTranslation()
@@ -11,6 +15,7 @@ export default function SyncStatusStrip() {
     const pulling = useSyncStore((s) => s.pulling)
     const pushing = useSyncStore((s) => s.pushing)
     const lastErr = useSyncStore((s) => s.lastError)
+    const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt)
     const authed = useAuthStore((s) => s.isAuthenticated)
 
     if (!authed) return null
@@ -20,6 +25,7 @@ export default function SyncStatusStrip() {
     const showUnreachable = online && reachable === false
     const showPending = pending > 0 || pulling || pushing
     const showErr = !!lastErr && !syncBlocked
+    const showLastSynced = !showPending && !showErr && !syncBlocked && !showUnreachable && lastSyncedAt != null
 
     return (
         <div className="flex w-full min-w-0 items-center gap-2 text-[9px] leading-tight">
@@ -34,7 +40,12 @@ export default function SyncStatusStrip() {
                     </span>
                 ) : null}
                 {showErr ? (
-                    <span className="min-w-0 flex-1 truncate text-destructive">{lastErr}</span>
+                    <span className="min-w-0 flex-1 truncate text-destructive" title={lastErr}>{lastErr}</span>
+                ) : null}
+                {showLastSynced ? (
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {t('sync.lastSyncedAt', { time: formatSyncTime(lastSyncedAt) })}
+                    </span>
                 ) : null}
             </div>
         </div>
