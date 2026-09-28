@@ -90,14 +90,20 @@
     .hero {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 3rem;
+      gap: 40px;               /* chips → preview column gap */
       align-items: center;
-      padding: clamp(4rem, 8vw, 7rem) clamp(1.25rem, 5vw, 5rem) clamp(3rem, 6vw, 5rem);
+      padding: 48px clamp(1.25rem, 5vw, 5rem) 80px; /* nav→hero 48px; section gap bottom 80px */
       max-width: 1200px;
       margin: 0 auto;
     }
 
-    .hero-copy { display: flex; flex-direction: column; gap: 1.5rem; }
+    .hero-copy { display: flex; flex-direction: column; gap: 0; }
+
+    /* Per-element vertical gaps in hero copy stack */
+    .hero-copy h1           { margin-top: 16px; }
+    .hero-copy .hero-sub    { margin-top: 24px; } /* headline → sub */
+    .hero-copy .cta-group   { margin-top: 20px; } /* sub → CTA chips */
+    .hero-copy .releases-link { margin-top: 28px; } /* chips → releases link */
 
     .hero-badge {
       display: inline-flex;
@@ -133,7 +139,7 @@
     .cta-group {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 12px;               /* platform chips gap */
       align-items: center;
     }
 
@@ -371,20 +377,20 @@
     .features {
       max-width: 1200px;
       margin: 0 auto;
-      padding: clamp(2rem, 6vw, 5rem) clamp(1.25rem, 5vw, 5rem);
+      padding: clamp(4rem, 6vw, 5rem) clamp(1.25rem, 5vw, 5rem) clamp(4rem, 6vw, 5rem); /* section gap 64–80px */
     }
 
     .features-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1.25rem;
+      gap: 24px;               /* feature cards gap */
     }
 
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.75rem;
+      padding: 24px;           /* card padding */
       display: flex;
       flex-direction: column;
       gap: 1rem;
