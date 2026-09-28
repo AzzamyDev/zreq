@@ -21,6 +21,7 @@ import type {
 import { invoke } from '@tauri-apps/api/core'
 import { withNormalizedQuery } from '../lib/query-params'
 import { inferProtocolFromUrl } from '../lib/persist-request'
+import { refreshTabsFromPulledCollections } from '../lib/sync-refresh-tabs'
 import { rangeSelectIds, type SidebarSelection } from '../lib/collection-tree-select'
 
 const ENV_MAP_KEY = 'zreq_environment_by_workspace'
@@ -1016,6 +1017,21 @@ export const useAppStore = create<AppState>()(
                     localStorage.setItem('zreq_workspace_id', String(p.activeWorkspaceId))
                 } catch {
                     /* ignore */
+                }
+
+                // Refresh open editor tabs whose backing request was updated by the pull.
+                // Dirty tabs (user has unsaved local edits) are intentionally skipped so
+                // in-progress work is never silently overwritten by a background sync.
+                const { tabs: nextTabs, refreshedTabIds } = refreshTabsFromPulledCollections(
+                    s.tabs as RequestTab[],
+                    p.collections,
+                )
+                if (refreshedTabIds.size > 0) {
+                    s.tabs = nextTabs as typeof s.tabs
+                    if (s.activeTabId != null && refreshedTabIds.has(s.activeTabId)) {
+                        const activeTab = nextTabs.find((t) => t.id === s.activeTabId)
+                        if (activeTab) s.activeRequest = { ...activeTab.request }
+                    }
                 }
             }),
 
