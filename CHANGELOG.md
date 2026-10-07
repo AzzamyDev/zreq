@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/AzzamyDev/zreq/compare/v1.4.0...v1.4.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* STALE items ConflictDialog + workspace picker active highlight ([#27](https://github.com/AzzamyDev/zreq/issues/27)) ([d5419bf](https://github.com/AzzamyDev/zreq/commit/d5419bff9c15cc5217eb559f96f540fb500dd6d4))
+
 ## [1.4.0](https://github.com/AzzamyDev/zreq/compare/v1.3.0...v1.4.0) (2026-10-07)
 
 
