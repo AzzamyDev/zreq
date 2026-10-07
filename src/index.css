@@ -318,6 +318,25 @@
     color: var(--dracula-cyan);
 }
 
+.monaco-json-var-scope-badge--mock {
+    background: color-mix(in srgb, var(--dracula-purple) 30%, transparent);
+    color: var(--dracula-purple);
+}
+
+.zreq-var-built-in-badge {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    border-radius: 2px;
+    padding: 0 0.25rem;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1.35;
+    text-transform: lowercase;
+    background: color-mix(in srgb, var(--dracula-purple) 30%, transparent);
+    color: var(--dracula-purple);
+}
+
 .monaco-json-var-switch-foot {
     border-top: 1px solid var(--border);
     padding: 0.45rem 0.55rem;

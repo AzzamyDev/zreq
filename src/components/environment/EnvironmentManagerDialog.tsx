@@ -721,6 +721,9 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
 
                                 <ScrollArea className="min-h-0 flex-1">
                                     <div className="px-1 py-1">
+                                        <p className="px-3 pb-2 text-[11px] leading-snug text-muted-foreground">
+                                            {t('vars.builtInVarsHint')}
+                                        </p>
                                         <div className={cn('sticky top-0 z-10 border-b border-border/70 bg-card', VAR_ROW_GRID)}>
                                             <div className="flex items-center justify-center py-2 pl-3 pr-1">
                                                 <input
