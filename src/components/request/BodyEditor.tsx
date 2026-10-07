@@ -239,6 +239,10 @@ export default function BodyEditor({ body, onChange }: BodyEditorProps) {
                             wrapperClassName="min-h-0 flex-1"
                             className="json-body-monaco"
                             onMount={handleEditorMount}
+                            options={{
+                                quickSuggestions: { strings: true, other: true, comments: false },
+                                suggestOnTriggerCharacters: true,
+                            }}
                         />
                     </div>
                 )}

@@ -11,10 +11,100 @@ import {
     type VariableSuggestionScope,
 } from './env-resolver'
 import {
+    MOCK_TEMPLATE_SUBGROUPS,
     MOCK_TEMPLATE_VARIABLE_DESC_I18N,
+    MOCK_TEMPLATE_VARIABLE_KEYS,
     resolveMockTemplateVariable,
     type MockTemplateVariableKey,
 } from './mock-template-vars'
+
+const INCOMPLETE_TEMPLATE_AT_CURSOR_RE = /\{\{([\w$.-]*)$/
+
+export function templateVarFilterFromLineBeforeCursor(before: string): string | null {
+    const m = before.match(INCOMPLETE_TEMPLATE_AT_CURSOR_RE)
+    return m ? (m[1] ?? '') : null
+}
+
+function filterBuiltInMockKeys(filter: string): MockTemplateVariableKey[] {
+    const q = filter.toLowerCase()
+    return MOCK_TEMPLATE_VARIABLE_KEYS.filter((k) => {
+        const token = `{{${k}}}`
+        return k.toLowerCase().startsWith(q) || token.toLowerCase().includes(q)
+    })
+}
+
+function variableSourceDetailLabel(source: TemplateVariableSource): string {
+    if (source === 'environment') return i18n.t('vars.sourceEnvironment')
+    if (source === 'folder') return i18n.t('vars.sourceFolder')
+    if (source === 'collection') return i18n.t('vars.sourceCollection')
+    if (source === 'mock') return i18n.t('vars.sourceBuiltIn')
+    return i18n.t('vars.sourceUnresolved')
+}
+
+/** Completion rows aligned with VarTemplateField (built-in subgroups, then env). */
+export function buildJsonTemplateVarCompletions(
+    monaco: typeof import('monaco-editor'),
+    filter: string,
+    range: Monaco.IRange,
+    scope?: VariableSuggestionScope,
+): Monaco.languages.CompletionItem[] {
+    const builtInKeys = filterBuiltInMockKeys(filter)
+    const builtInSet = new Set(builtInKeys)
+    const q = filter.toLowerCase()
+    const envSuggestions = listTemplateVariableSuggestions(scope).filter(
+        (s) => s.source !== 'mock' && s.key.toLowerCase().startsWith(q),
+    )
+
+    const items: Monaco.languages.CompletionItem[] = []
+    let sort = 0
+    const push = (item: Monaco.languages.CompletionItem) => {
+        items.push({ ...item, sortText: String(sort++).padStart(4, '0') })
+    }
+
+    for (const sg of MOCK_TEMPLATE_SUBGROUPS) {
+        for (const key of sg.keys) {
+            if (!builtInSet.has(key)) continue
+            push({
+                label: `{{${key}}}`,
+                kind: monaco.languages.CompletionItemKind.Variable,
+                detail: i18n.t(`vars.${MOCK_TEMPLATE_VARIABLE_DESC_I18N[key]}`),
+                documentation: i18n.t(`vars.${sg.labelI18n}`),
+                insertText: `{{${key}}}`,
+                range,
+            })
+        }
+    }
+
+    for (const s of envSuggestions) {
+        push({
+            label: `{{${s.key}}}`,
+            kind: monaco.languages.CompletionItemKind.Variable,
+            detail: variableSourceDetailLabel(s.source),
+            insertText: `{{${s.key}}}`,
+            range,
+        })
+    }
+
+    return items
+}
+
+function scheduleTemplateSuggest(editor: Monaco.editor.IStandaloneCodeEditor): void {
+    window.setTimeout(() => {
+        if (!editor.getModel()) return
+        editor.trigger('zreq-template', 'editor.action.triggerSuggest', {})
+    }, 0)
+}
+
+function maybeTriggerTemplateSuggest(editor: Monaco.editor.IStandaloneCodeEditor): void {
+    const model = editor.getModel()
+    const pos = editor.getPosition()
+    if (!model || !pos) return
+    const line = model.getLineContent(pos.lineNumber)
+    const before = line.slice(0, pos.column - 1)
+    if (templateVarFilterFromLineBeforeCursor(before) != null) {
+        scheduleTemplateSuggest(editor)
+    }
+}
 
 const HOVER_DEBOUNCE_MS = 280
 const HOVER_CLOSE_MARGIN = 24
@@ -506,7 +596,7 @@ export function attachJsonTemplateFeatures(
                 const model = editor.getModel()
                 if (model) {
                     const text = model.getValue()
-                    const re = /\{\{([\w.-]+)\}\}/g
+                    const re = /\{\{([\w$.-]+)\}\}/g
                     let m: RegExpExecArray | null
                     while ((m = re.exec(text)) !== null) {
                         const key = (m[1] ?? '').trim()
@@ -585,43 +675,31 @@ export function attachJsonTemplateFeatures(
     domNode?.addEventListener('mouseleave', onMouseLeave)
 
     const completionDisposable = monaco.languages.registerCompletionItemProvider('json', {
-        triggerCharacters: ['{'],
+        triggerCharacters: ['{', '$'],
         provideCompletionItems(
             model: Monaco.editor.ITextModel,
             position: Monaco.Position,
         ) {
             const line = model.getLineContent(position.lineNumber)
             const before = line.slice(0, position.column - 1)
-            const m = before.match(/\{\{([\w$.-]*)$/)
-            if (!m) return { suggestions: [] }
-            const filter = (m[1] ?? '').toLowerCase()
-            const all = listTemplateVariableSuggestions(scope)
-            const filtered = filter === '' ? all : all.filter((s) => s.key.toLowerCase().startsWith(filter))
-            const replaceStart = position.column - (m[0]?.length ?? 0)
+            const filterPart = templateVarFilterFromLineBeforeCursor(before)
+            if (filterPart == null) return { suggestions: [] }
+            const replaceStart = position.column - (before.match(INCOMPLETE_TEMPLATE_AT_CURSOR_RE)?.[0]?.length ?? 0)
+            const range = {
+                startLineNumber: position.lineNumber,
+                startColumn: replaceStart,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+            }
             return {
-                suggestions: filtered.map((s) => ({
-                    label: s.key,
-                    kind: monaco.languages.CompletionItemKind.Variable,
-                    detail:
-                        s.source === 'mock'
-                            ? i18n.t(
-                                  `vars.${MOCK_TEMPLATE_VARIABLE_DESC_I18N[s.key as MockTemplateVariableKey]}`,
-                              )
-                            : s.source,
-                    insertText: `{{${s.key}}}`,
-                    range: {
-                        startLineNumber: position.lineNumber,
-                        startColumn: replaceStart,
-                        endLineNumber: position.lineNumber,
-                        endColumn: position.column,
-                    },
-                })),
+                suggestions: buildJsonTemplateVarCompletions(monaco, filterPart, range, scope),
             }
         },
     })
 
     const onContentChange = editor.onDidChangeModelContent(() => {
         refreshDecorations()
+        maybeTriggerTemplateSuggest(editor)
     })
 
     const onScroll = editor.onDidScrollChange(() => {
