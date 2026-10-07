@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0](https://github.com/AzzamyDev/zreq/compare/v1.3.0...v1.4.0) (2026-10-07)
+
+
+### Features
+
+* **auth:** API Key auth for collection, folder, and request ([#23](https://github.com/AzzamyDev/zreq/issues/23)) ([357fb9f](https://github.com/AzzamyDev/zreq/commit/357fb9f991d5ecadd924b5e21851479c4bc05196))
+* **vars:** built-in mock variables {{$…}} (Postman-style) ([#24](https://github.com/AzzamyDev/zreq/issues/24)) ([2c6851f](https://github.com/AzzamyDev/zreq/commit/2c6851ff8b9feebb27f46d45cb4713deb3effa8e))
+
+
+### Bug Fixes
+
+* **sync:** P0 sync fixes — conflict preservation, 409/404/STALE handling, SyncStatusStrip, QA regressions, server contract ([#19](https://github.com/AzzamyDev/zreq/issues/19)) ([86b5839](https://github.com/AzzamyDev/zreq/commit/86b58395e2f53faf051f166503f710c8d8d121f8))
+* **sync:** refresh open editor tabs after remote pull ([8e570bd](https://github.com/AzzamyDev/zreq/commit/8e570bd1c3d84b54e0e1ba7bfb3ac222c746a2a2))
+
 ## [1.3.0](https://github.com/AzzamyDev/zreq/compare/v1.2.0...v1.3.0) (2026-08-13)
 
 
