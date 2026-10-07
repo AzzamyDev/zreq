@@ -182,7 +182,7 @@ export default function AuthEditor({
                             onChange={(v) =>
                                 onChange({ type: 'apikey', key: auth.key, value: v, addTo: auth.addTo })
                             }
-                            placeholder={t('authEditor.bearerPlaceholder')}
+                            placeholder={t('authEditor.apiKeyValuePlaceholder')}
                             className="min-h-8 w-full rounded-md border border-input bg-background px-2 py-1"
                             inputClassName="text-sm"
                             variableSuggestionScope={variableSuggestionScope}

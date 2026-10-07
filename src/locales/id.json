@@ -422,6 +422,7 @@
     "apiKeyAddToHeader": "Header",
     "apiKeyAddToQuery": "Query Params",
     "apiKeyKeyPlaceholder": "X-API-Key",
+    "apiKeyValuePlaceholder": "Masukkan API key…",
     "apiKeyInheritHint": "Permintaan turunan yang mewarisi auth akan mengirim kunci API ini.",
     "noAuth": "Tidak ada autentikasi untuk permintaan ini.",
     "inheritAuth": "Memakai auth terdekat: pengaturan folder ini, lalu folder induk, lalu koleksi.",
