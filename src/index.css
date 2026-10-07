@@ -112,6 +112,14 @@
   }
 }
 
+/* Monaco overflow widgets (suggest, parameter hints) above request/response split */
+.monaco-editor .suggest-widget,
+.monaco-editor .parameter-hints-widget,
+.monaco-editor .overflowingContentWidgets,
+.monaco-editor .overflowingOverlayWidgets {
+    z-index: 100000;
+}
+
 /* Monaco editor chrome */
 .json-body-monaco .monaco-editor,
 .json-body-monaco .monaco-editor-background,

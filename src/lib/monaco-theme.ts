@@ -97,6 +97,8 @@ export const defaultMonacoEditorOptions: editor.IStandaloneEditorConstructionOpt
     bracketPairColorization: { enabled: false },
     guides: { indentation: true, bracketPairs: false },
     automaticLayout: true,
+    /** Suggest/hover widgets use fixed positioning so they are not clipped by panel overflow. */
+    fixedOverflowWidgets: true,
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
     overviewRulerLanes: 0,
     hideCursorInOverviewRuler: true,
