@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/AzzamyDev/zreq/compare/v1.4.1...v1.4.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* prune missing collections on remote pull ([#28](https://github.com/AzzamyDev/zreq/issues/28)) ([57edf2c](https://github.com/AzzamyDev/zreq/commit/57edf2c954fe2ea2984d6987f5fccac42e15888d))
+
 ## [1.4.1](https://github.com/AzzamyDev/zreq/compare/v1.4.0...v1.4.1) (2026-10-07)
 
 
