@@ -657,10 +657,12 @@ async function trySelfStaleRetry(op: OutboxOp, serverEntity: unknown): Promise<b
             return true
         }
         if (op.expectedUpdatedAt == null || op.expectedUpdatedAt === srv.updatedAt) return false
+        // Items/tree mismatch: surface ConflictDialog (handleStale409) - never auto-PATCH the tree.
+        // Self-retry is only safe for non-tree scalar fields (name / description).
+        if (stableStringify(local.items, 0) !== stableStringify(srv.items, 0)) return false
         const body: Record<string, unknown> = {}
         if (local.name !== srv.name) body.name = local.name
         if ((local.description ?? '') !== (srv.description ?? '')) body.description = local.description
-        if (stableStringify(local.items, 0) !== stableStringify(srv.items, 0)) body.items = local.items
         if (Object.keys(body).length === 0) return true
         try {
             const res = await apiClient.patch<{ data: Collection }>(`/collections/${op.collectionId}`, {
