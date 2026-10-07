@@ -392,14 +392,20 @@ export default function ConflictDialog() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="min-w-[10rem]"
+                        disabled={busy}
+                        onClick={() => void onKeepLocal(first)}
+                    >
+                        {t('sync.keepLocal')}
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
                         className="min-w-[7.5rem]"
                         disabled={busy}
                         onClick={() => void onKeepServer(first)}
                     >
                         {t('sync.keepServer')}
-                    </Button>
-                    <Button type="button" size="sm" className="min-w-[10rem]" disabled={busy} onClick={() => void onKeepLocal(first)}>
-                        {t('sync.keepLocal')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
