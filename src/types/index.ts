@@ -47,6 +47,7 @@ export type AuthConfig =
     | { type: 'bearer'; token: string }
     | { type: 'basic'; username: string; password: string }
     | { type: 'jwt'; token: string; prefix: string }
+    | { type: 'apikey'; key: string; value: string; addTo: 'header' | 'query' }
 
 /** User who last wrote this row (from API sync). */
 export type ActorSummary = { id: number; name: string; email: string }

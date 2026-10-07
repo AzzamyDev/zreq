@@ -29,6 +29,7 @@ export default function AuthEditor({
             { value: 'bearer' as const, label: t('authEditor.typeBearer') },
             { value: 'basic' as const, label: t('authEditor.typeBasic') },
             { value: 'jwt' as const, label: t('authEditor.typeJwt') },
+            { value: 'apikey' as const, label: t('authEditor.typeApiKey') },
         ]
         return hideInherit ? all.filter((x) => x.value !== 'inherit') : all
     }, [hideInherit, t])
@@ -47,6 +48,8 @@ export default function AuthEditor({
                         else if (next === 'bearer') onChange({ type: 'bearer', token: '' })
                         else if (next === 'basic') onChange({ type: 'basic', username: '', password: '' })
                         else if (next === 'jwt') onChange({ type: 'jwt', token: '', prefix: 'Bearer' })
+                        else if (next === 'apikey')
+                            onChange({ type: 'apikey', key: '', value: '', addTo: 'header' })
                     }}
                 >
                     <SelectTrigger className="h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
@@ -77,7 +80,7 @@ export default function AuthEditor({
                 <p className="text-sm text-muted-foreground">{t('authEditor.inheritAuth')}</p>
             )}
 
-            {(auth.type === 'bearer' || auth.type === 'jwt' || auth.type === 'basic') && (
+            {(auth.type === 'bearer' || auth.type === 'jwt' || auth.type === 'basic' || auth.type === 'apikey') && (
                 <p className="mb-2 text-xs text-muted-foreground">{t('authEditor.credentialsVarHint')}</p>
             )}
 
@@ -150,6 +153,67 @@ export default function AuthEditor({
                             inputClassName="text-sm"
                             variableSuggestionScope={variableSuggestionScope}
                         />
+                    </div>
+                </div>
+            )}
+
+            {auth.type === 'apikey' && (
+                <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">{t('authEditor.apiKeyInheritHint')}</p>
+                    <div>
+                        <label className={labelClass}>{t('authEditor.apiKeyKey')}</label>
+                        <VarTemplateField
+                            wrap
+                            value={auth.key}
+                            onChange={(v) =>
+                                onChange({ type: 'apikey', key: v, value: auth.value, addTo: auth.addTo })
+                            }
+                            placeholder={t('authEditor.apiKeyKeyPlaceholder')}
+                            className="min-h-8 w-full rounded-md border border-input bg-background px-2 py-1"
+                            inputClassName="text-sm"
+                            variableSuggestionScope={variableSuggestionScope}
+                        />
+                    </div>
+                    <div>
+                        <label className={labelClass}>{t('authEditor.apiKeyValue')}</label>
+                        <VarTemplateField
+                            wrap
+                            value={auth.value}
+                            onChange={(v) =>
+                                onChange({ type: 'apikey', key: auth.key, value: v, addTo: auth.addTo })
+                            }
+                            placeholder={t('authEditor.bearerPlaceholder')}
+                            className="min-h-8 w-full rounded-md border border-input bg-background px-2 py-1"
+                            inputClassName="text-sm"
+                            variableSuggestionScope={variableSuggestionScope}
+                        />
+                    </div>
+                    <div>
+                        <label className={labelClass}>{t('authEditor.apiKeyAddTo')}</label>
+                        <Select
+                            value={auth.addTo ?? 'header'}
+                            onValueChange={(value) =>
+                                onChange({
+                                    type: 'apikey',
+                                    key: auth.key,
+                                    value: auth.value,
+                                    addTo: value as 'header' | 'query',
+                                })
+                            }
+                        >
+                            <SelectTrigger className="h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent
+                                container={selectPortalContainer}
+                                align="start"
+                                side="bottom"
+                                sideOffset={4}
+                            >
+                                <SelectItem value="header">{t('authEditor.apiKeyAddToHeader')}</SelectItem>
+                                <SelectItem value="query">{t('authEditor.apiKeyAddToQuery')}</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </div>
             )}
