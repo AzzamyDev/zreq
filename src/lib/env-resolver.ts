@@ -171,6 +171,25 @@ function resolveInheritedAuth(collectionId: number, folderId: string | undefined
     return collection.auth ?? { type: 'none' }
 }
 
+function applyApiKeyAuth(
+    auth: AuthConfig,
+    vars: Record<string, string>,
+    headers: Record<string, string>,
+    url: string,
+): string {
+    if (auth.type !== 'apikey') return url
+    const key = resolveEnvVars(auth.key ?? '', vars).trim()
+    if (!key) return url
+    const value = resolveEnvVars(auth.value ?? '', vars)
+    const addTo = auth.addTo ?? 'header'
+    if (addTo === 'query') {
+        const qs = `${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+        return url + (url.includes('?') ? '&' : '?') + qs
+    }
+    headers[key] = value
+    return url
+}
+
 import { splitUrlQuery } from './query-params'
 
 export function resolveRequest(req: ActiveRequest, vars: Record<string, string>) {
@@ -221,6 +240,8 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
             const prefix = (auth.prefix || 'Bearer').trim() || 'Bearer'
             headers['Authorization'] = `${prefix} ${tok}`
         }
+    } else if (auth.type === 'apikey') {
+        url = applyApiKeyAuth(auth, vars, headers, url)
     }
 
     let body: string | null = null
@@ -324,6 +345,8 @@ export function resolveWebSocketRequest(req: ActiveRequest, vars: Record<string,
             const prefix = (auth.prefix || 'Bearer').trim() || 'Bearer'
             headers['Authorization'] = `${prefix} ${tok}`
         }
+    } else if (auth.type === 'apikey') {
+        url = applyApiKeyAuth(auth, vars, headers, url)
     }
 
     const subprotocols = (req.subprotocols || '')
