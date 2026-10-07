@@ -21,6 +21,7 @@ import {
     type VariableSuggestionScope,
 } from '../../lib/env-resolver'
 import {
+    MOCK_TEMPLATE_SUBGROUPS,
     MOCK_TEMPLATE_VARIABLE_DESC_I18N,
     MOCK_TEMPLATE_VARIABLE_KEYS,
     resolveMockTemplateVariable,
@@ -162,15 +163,32 @@ function VarTemplateField({
         )
     }, [templateSuggest, allVarSuggestions])
 
+    const filteredBuiltInSet = useMemo(
+        () => new Set<string>(filteredBuiltInSuggestions),
+        [filteredBuiltInSuggestions],
+    )
+
+    const visibleBuiltInSubgroups = useMemo(
+        () =>
+            MOCK_TEMPLATE_SUBGROUPS.map((sg) => ({
+                ...sg,
+                keys: sg.keys.filter((k) => filteredBuiltInSet.has(k)),
+            })).filter((sg) => sg.keys.length > 0),
+        [filteredBuiltInSet],
+    )
+
     const suggestEntries = useMemo(() => {
-        const builtIn = filteredBuiltInSuggestions.map((key) => ({ kind: 'builtin' as const, key }))
+        const builtIn: { kind: 'builtin'; key: string }[] = []
+        for (const sg of visibleBuiltInSubgroups) {
+            for (const key of sg.keys) builtIn.push({ kind: 'builtin', key })
+        }
         const env = filteredEnvSuggestions.map((s) => ({
             kind: 'env' as const,
             key: s.key,
             source: s.source,
         }))
         return [...builtIn, ...env]
-    }, [filteredBuiltInSuggestions, filteredEnvSuggestions])
+    }, [visibleBuiltInSubgroups, filteredEnvSuggestions])
 
     const syncTemplateSuggestFromInput = useCallback((el: HTMLInputElement, segIndex: number) => {
         const v = el.value
@@ -1104,10 +1122,10 @@ function VarTemplateField({
                     <div
                         data-var-template-suggest
                         role="listbox"
-                        className="fixed z-[100] flex max-h-48 min-w-[220px] max-w-sm flex-col overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md"
+                        className="fixed z-[100] flex max-h-64 min-w-[220px] max-w-sm flex-col overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md"
                         style={{ left: templateSuggest.x, top: templateSuggest.y }}
                     >
-                        <div className="max-h-36 overflow-y-auto py-0.5">
+                        <div className="max-h-52 overflow-y-auto py-0.5">
                             {suggestEntries.length === 0 ? (
                                 <div className="px-2 py-1.5">
                                     <p className="text-[10px] leading-snug text-muted-foreground">
@@ -1124,44 +1142,53 @@ function VarTemplateField({
                                             >
                                                 {t('vars.suggestSectionBuiltIn')}
                                             </p>
-                                            {filteredBuiltInSuggestions.map((mockKey) => {
-                                                const idx = suggestEntries.findIndex(
-                                                    (e) => e.kind === 'builtin' && e.key === mockKey,
-                                                )
-                                                const descKey =
-                                                    MOCK_TEMPLATE_VARIABLE_DESC_I18N[
-                                                        mockKey as MockTemplateVariableKey
-                                                    ]
-                                                return (
-                                                    <button
-                                                        key={mockKey}
-                                                        type="button"
-                                                        role="option"
-                                                        aria-selected={idx === suggestHighlight}
-                                                        ref={(el) => {
-                                                            if (el) suggestRowRef.current.set(idx, el)
-                                                            else suggestRowRef.current.delete(idx)
-                                                        }}
-                                                        className={cn(
-                                                            'flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent',
-                                                            idx === suggestHighlight && 'bg-accent',
-                                                        )}
-                                                        onMouseDown={(ev) => ev.preventDefault()}
-                                                        onMouseEnter={() => setSuggestHighlight(idx)}
-                                                        onClick={() => applyTemplateSuggestion(mockKey)}
+                                            {visibleBuiltInSubgroups.map((sg) => (
+                                                <div key={sg.id}>
+                                                    <p
+                                                        className="sticky top-0 z-[1] bg-popover px-2 py-0.5 text-xs text-muted-foreground"
                                                     >
-                                                        <span className="min-w-0 shrink truncate font-mono text-foreground">
-                                                            {`{{${mockKey}}}`}
-                                                        </span>
-                                                        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-                                                            {t(`vars.${descKey}`)}
-                                                        </span>
-                                                        <span className="zreq-var-built-in-badge">
-                                                            {t('vars.sourceBuiltIn')}
-                                                        </span>
-                                                    </button>
-                                                )
-                                            })}
+                                                        {t(`vars.${sg.labelI18n}`)}
+                                                    </p>
+                                                    {sg.keys.map((mockKey) => {
+                                                        const idx = suggestEntries.findIndex(
+                                                            (e) => e.kind === 'builtin' && e.key === mockKey,
+                                                        )
+                                                        const descKey =
+                                                            MOCK_TEMPLATE_VARIABLE_DESC_I18N[
+                                                                mockKey as MockTemplateVariableKey
+                                                            ]
+                                                        return (
+                                                            <button
+                                                                key={mockKey}
+                                                                type="button"
+                                                                role="option"
+                                                                aria-selected={idx === suggestHighlight}
+                                                                ref={(el) => {
+                                                                    if (el) suggestRowRef.current.set(idx, el)
+                                                                    else suggestRowRef.current.delete(idx)
+                                                                }}
+                                                                className={cn(
+                                                                    'flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent',
+                                                                    idx === suggestHighlight && 'bg-accent',
+                                                                )}
+                                                                onMouseDown={(ev) => ev.preventDefault()}
+                                                                onMouseEnter={() => setSuggestHighlight(idx)}
+                                                                onClick={() => applyTemplateSuggestion(mockKey)}
+                                                            >
+                                                                <span className="min-w-0 shrink truncate font-mono text-foreground">
+                                                                    {`{{${mockKey}}}`}
+                                                                </span>
+                                                                <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                                                                    {t(`vars.${descKey}`)}
+                                                                </span>
+                                                                <span className="zreq-var-built-in-badge">
+                                                                    {t('vars.sourceBuiltIn')}
+                                                                </span>
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            ))}
                                         </>
                                     ) : null}
                                     {filteredEnvSuggestions.length > 0 ? (

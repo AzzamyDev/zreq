@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { ActiveRequest } from '../types'
-import { MOCK_RANDOM_INT_MAX } from './mock-template-vars'
+import {
+    generateFakeNik,
+    MOCK_RANDOM_INT_MAX,
+    MOCK_TEMPLATE_VARIABLE_KEYS,
+} from './mock-template-vars'
 import { getVariableSource, resolveEnvVars, resolveRequest, resolveWebSocketRequest } from './env-resolver'
 
 vi.mock('../store', () => ({
@@ -46,10 +50,28 @@ describe('resolveEnvVars mock template variables', () => {
         expect(resolveEnvVars('t={{$timestamp}}', {})).toBe(`t=${fixedMs}`)
         expect(resolveEnvVars('{{$isoTimestamp}}', {})).toBe(new Date(fixedMs).toISOString())
         expect(resolveEnvVars('{{$guid}}', {})).toBe('11111111-2222-4333-8444-555555555555')
+        expect(resolveEnvVars('{{$randomUUID}}', {})).toBe('11111111-2222-4333-8444-555555555555')
         expect(resolveEnvVars('{{$randomInt}}', {})).toBe(
             String(Math.floor(0.5 * (MOCK_RANDOM_INT_MAX + 1))),
         )
         expect(resolveEnvVars('{{$randomStreetAddress}}', {})).toMatch(/^\d+ \w+ St$/)
+        expect(resolveEnvVars('{{$randomNIK}}', {})).toMatch(/^\d{16}$/)
+        expect(resolveEnvVars('{{$randomProductName}}', {})).toMatch(/^.+ .+-\d{4}$/)
+    })
+
+    it('resolves every registered mock token (smoke)', () => {
+        for (const key of MOCK_TEMPLATE_VARIABLE_KEYS) {
+            const token = `{{${key}}}`
+            const out = resolveEnvVars(token, {})
+            expect(out).not.toBe(token)
+            expect(out.length).toBeGreaterThan(0)
+        }
+    })
+
+    it('generateFakeNik always returns 16 digits', () => {
+        for (let i = 0; i < 20; i++) {
+            expect(generateFakeNik()).toMatch(/^\d{16}$/)
+        }
     })
 
     it('leaves unknown {{$x}} literals unchanged', () => {
