@@ -1,6 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { ActiveRequest } from '../types'
-import { resolveRequest, resolveWebSocketRequest } from './env-resolver'
+import {
+    generateFakeNik,
+    MOCK_RANDOM_INT_MAX,
+    MOCK_TEMPLATE_VARIABLE_KEYS,
+} from './mock-template-vars'
+import { getVariableSource, resolveEnvVars, resolveRequest, resolveWebSocketRequest } from './env-resolver'
 
 vi.mock('../store', () => ({
     useAppStore: {
@@ -21,6 +26,76 @@ const baseRequest = (): ActiveRequest => ({
     body: { type: 'none', content: '' },
     auth: { type: 'none' },
     name: 'Test',
+})
+
+describe('resolveEnvVars mock template variables', () => {
+    const fixedMs = 1_700_000_000_123
+
+    beforeEach(() => {
+        vi.useFakeTimers()
+        vi.setSystemTime(fixedMs)
+        vi.spyOn(Math, 'random').mockReturnValue(0.5)
+        vi.stubGlobal('crypto', {
+            randomUUID: () => '11111111-2222-4333-8444-555555555555',
+        })
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+        vi.unstubAllGlobals()
+    })
+
+    it('resolves each built-in mock', () => {
+        expect(resolveEnvVars('t={{$timestamp}}', {})).toBe(`t=${fixedMs}`)
+        expect(resolveEnvVars('{{$isoTimestamp}}', {})).toBe(new Date(fixedMs).toISOString())
+        expect(resolveEnvVars('{{$guid}}', {})).toBe('11111111-2222-4333-8444-555555555555')
+        expect(resolveEnvVars('{{$randomUUID}}', {})).toBe('11111111-2222-4333-8444-555555555555')
+        expect(resolveEnvVars('{{$randomInt}}', {})).toBe(
+            String(Math.floor(0.5 * (MOCK_RANDOM_INT_MAX + 1))),
+        )
+        expect(resolveEnvVars('{{$randomStreetAddress}}', {})).toMatch(/^\d+ \w+ St$/)
+        expect(resolveEnvVars('{{$randomNIK}}', {})).toMatch(/^\d{16}$/)
+        expect(resolveEnvVars('{{$randomProductName}}', {})).toMatch(/^.+ .+-\d{4}$/)
+    })
+
+    it('resolves every registered mock token (smoke)', () => {
+        for (const key of MOCK_TEMPLATE_VARIABLE_KEYS) {
+            const token = `{{${key}}}`
+            const out = resolveEnvVars(token, {})
+            expect(out).not.toBe(token)
+            expect(out.length).toBeGreaterThan(0)
+        }
+    })
+
+    it('generateFakeNik always returns 16 digits', () => {
+        for (let i = 0; i < 20; i++) {
+            expect(generateFakeNik()).toMatch(/^\d{16}$/)
+        }
+    })
+
+    it('leaves unknown {{$x}} literals unchanged', () => {
+        expect(resolveEnvVars('{{$notARealMock}}', {})).toBe('{{$notARealMock}}')
+    })
+
+    it('coexists with normal env vars', () => {
+        expect(resolveEnvVars('{{host}}/{{$timestamp}}', { host: 'api.test' })).toBe(
+            `api.test/${fixedMs}`,
+        )
+        expect(resolveEnvVars('{{$timestamp}} and {{name}}', { name: 'ok' })).toBe(`${fixedMs} and ok`)
+    })
+
+    it('does not treat env keys with $ prefix as mocks unless known', () => {
+        expect(resolveEnvVars('{{$custom}}', { $custom: 'from-env' })).toBe('{{$custom}}')
+        expect(resolveEnvVars('{{custom}}', { custom: 'plain' })).toBe('plain')
+    })
+})
+
+describe('getVariableSource for mocks', () => {
+    it('marks known mocks as mock source', () => {
+        expect(getVariableSource('$timestamp')).toBe('mock')
+        expect(getVariableSource('$unknownMock')).toBe('none')
+    })
 })
 
 describe('resolveRequest apikey auth', () => {

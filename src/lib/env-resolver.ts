@@ -1,9 +1,23 @@
 import { stripJsonComments } from './strip-json-comments'
 import { useAppStore } from '../store'
 import type { ActiveRequest, AuthConfig, EnvVariable, Folder } from '../types'
+import {
+    isKnownMockTemplateVariable,
+    MOCK_TEMPLATE_VARIABLE_KEYS,
+    resolveMockTemplateVariable,
+} from './mock-template-vars'
+
+export type TemplateVariableSource = 'environment' | 'folder' | 'collection' | 'mock' | 'none'
 
 export function resolveEnvVars(text: string, vars: Record<string, string>): string {
-    return text.replace(/\{\{([^}]+)\}\}/g, (match, key: string) => vars[key.trim()] ?? match)
+    return text.replace(/\{\{([^}]+)\}\}/g, (match, key: string) => {
+        const trimmed = key.trim()
+        if (trimmed.startsWith('$')) {
+            const mock = resolveMockTemplateVariable(trimmed)
+            return mock ?? match
+        }
+        return vars[trimmed] ?? match
+    })
 }
 
 /** Expand `{{key}}` inside variable values until stable (order-independent within a pass). */
@@ -89,8 +103,9 @@ function resolveVariableContext(scope?: VariableSuggestionScope): {
 export function getVariableSource(
     key: string,
     scope?: VariableSuggestionScope,
-): 'environment' | 'folder' | 'collection' | 'none' {
+): TemplateVariableSource {
     const k = key.trim()
+    if (isKnownMockTemplateVariable(k)) return 'mock'
     const { environments, activeEnvironmentId, collections } = useAppStore.getState()
     const env = environments.find((e) => e.id === activeEnvironmentId)
     if (env?.variables?.some((v) => v.enabled && v.key === k)) return 'environment'
@@ -111,7 +126,7 @@ export function getVariableSource(
 /** Keys from active environment + collection (and folder chain when folderId is set) for `{{` autocomplete. */
 export function listTemplateVariableSuggestions(scope?: VariableSuggestionScope): {
     key: string
-    source: 'environment' | 'folder' | 'collection' | 'none'
+    source: TemplateVariableSource
 }[] {
     const { environments, activeEnvironmentId, collections } = useAppStore.getState()
     const keys = new Set<string>()
@@ -139,9 +154,16 @@ export function listTemplateVariableSuggestions(scope?: VariableSuggestionScope)
         }
     }
 
-    return [...keys]
+    const envSuggestions = [...keys]
         .sort((a, b) => a.localeCompare(b))
         .map((key) => ({ key, source: getVariableSource(key, scope) }))
+
+    const mockSuggestions = MOCK_TEMPLATE_VARIABLE_KEYS.map((key) => ({
+        key,
+        source: 'mock' as const,
+    }))
+
+    return [...mockSuggestions, ...envSuggestions]
 }
 
 /** Invalidates JSON `{{var}}` badges when active env / collection / folder or defined keys change. */

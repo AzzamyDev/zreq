@@ -20,11 +20,18 @@ import {
     listTemplateVariableSuggestions,
     type VariableSuggestionScope,
 } from '../../lib/env-resolver'
+import {
+    MOCK_TEMPLATE_SUBGROUPS,
+    MOCK_TEMPLATE_VARIABLE_DESC_I18N,
+    MOCK_TEMPLATE_VARIABLE_KEYS,
+    resolveMockTemplateVariable,
+    type MockTemplateVariableKey,
+} from '../../lib/mock-template-vars'
 import { ensureVarPanelHost } from '../../lib/monaco-json-template'
 import { cn } from '../../lib/utils'
 
 /** Cursor in a text segment right after `{{`, optional partial name (no closing `}}` yet). */
-const INCOMPLETE_TEMPLATE_RE = /\{\{([a-zA-Z0-9_.-]*)$/
+const INCOMPLETE_TEMPLATE_RE = /\{\{([$a-zA-Z0-9_.-]*)$/
 
 const CLOSED_VAR_TOKEN_RE = /\{\{([^}]+)\}\}/g
 
@@ -139,11 +146,49 @@ function VarTemplateField({
         [environments, activeEnvironmentId, collections, collectionId, folderId, variableSuggestionScope],
     )
 
-    const filteredVarSuggestions = useMemo(() => {
+    const filteredBuiltInSuggestions = useMemo(() => {
         if (!templateSuggest) return []
         const q = templateSuggest.filter.toLowerCase()
-        return allVarSuggestions.filter((s) => s.key.toLowerCase().startsWith(q))
+        return MOCK_TEMPLATE_VARIABLE_KEYS.filter((k) => {
+            const token = `{{${k}}}`
+            return k.toLowerCase().startsWith(q) || token.toLowerCase().includes(q)
+        })
+    }, [templateSuggest])
+
+    const filteredEnvSuggestions = useMemo(() => {
+        if (!templateSuggest) return []
+        const q = templateSuggest.filter.toLowerCase()
+        return allVarSuggestions.filter(
+            (s) => s.source !== 'mock' && s.key.toLowerCase().startsWith(q),
+        )
     }, [templateSuggest, allVarSuggestions])
+
+    const filteredBuiltInSet = useMemo(
+        () => new Set<string>(filteredBuiltInSuggestions),
+        [filteredBuiltInSuggestions],
+    )
+
+    const visibleBuiltInSubgroups = useMemo(
+        () =>
+            MOCK_TEMPLATE_SUBGROUPS.map((sg) => ({
+                ...sg,
+                keys: sg.keys.filter((k) => filteredBuiltInSet.has(k)),
+            })).filter((sg) => sg.keys.length > 0),
+        [filteredBuiltInSet],
+    )
+
+    const suggestEntries = useMemo(() => {
+        const builtIn: { kind: 'builtin'; key: string }[] = []
+        for (const sg of visibleBuiltInSubgroups) {
+            for (const key of sg.keys) builtIn.push({ kind: 'builtin', key })
+        }
+        const env = filteredEnvSuggestions.map((s) => ({
+            kind: 'env' as const,
+            key: s.key,
+            source: s.source,
+        }))
+        return [...builtIn, ...env]
+    }, [visibleBuiltInSubgroups, filteredEnvSuggestions])
 
     const syncTemplateSuggestFromInput = useCallback((el: HTMLInputElement, segIndex: number) => {
         const v = el.value
@@ -417,12 +462,12 @@ function VarTemplateField({
 
     useEffect(() => {
         if (!templateSuggest) return
-        if (filteredVarSuggestions.length === 0) {
+        if (suggestEntries.length === 0) {
             setSuggestHighlight(0)
             return
         }
-        setSuggestHighlight((h) => Math.min(h, filteredVarSuggestions.length - 1))
-    }, [templateSuggest, filteredVarSuggestions.length])
+        setSuggestHighlight((h) => Math.min(h, suggestEntries.length - 1))
+    }, [templateSuggest, suggestEntries.length])
 
     useEffect(() => {
         if (!templateSuggest) return
@@ -634,6 +679,7 @@ function VarTemplateField({
         if (src === 'environment') return t('vars.sourceEnvironment')
         if (src === 'folder') return t('vars.sourceFolder')
         if (src === 'collection') return t('vars.sourceCollection')
+        if (src === 'mock') return t('vars.sourceBuiltIn')
         return t('vars.sourceUnresolved')
     }
 
@@ -826,7 +872,7 @@ function VarTemplateField({
                             onMouseUp={() => handleTextMouseUp(ti)}
                             onKeyDown={(e) => {
                                 if (templateSuggest?.segIndex === i) {
-                                    const n = filteredVarSuggestions.length
+                                    const n = suggestEntries.length
                                     if (e.key === 'Escape') {
                                         e.preventDefault()
                                         setTemplateSuggest(null)
@@ -845,7 +891,7 @@ function VarTemplateField({
                                         }
                                         if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
                                             e.preventDefault()
-                                            const pick = filteredVarSuggestions[suggestHighlight]
+                                            const pick = suggestEntries[suggestHighlight]
                                             if (pick) applyTemplateSuggestion(pick.key)
                                             return
                                         }
@@ -955,24 +1001,33 @@ function VarTemplateField({
                     >
                         {varPanelResolved && varPanelSrc ? (
                             <>
-                                <div className="monaco-json-var-panel-body">
-                                    <div className="monaco-json-var-value-box">
-                                        <input
-                                            type="text"
-                                            className="monaco-json-var-value-input"
-                                            value={editVarValue}
-                                            disabled={!activeEnvironmentId}
-                                            onChange={(e) => setEditVarValue(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    e.preventDefault()
-                                                    void handleSaveVarValue(true)
-                                                }
-                                            }}
-                                            onBlur={(e) => handleVarInputBlur(e, false)}
-                                        />
+                                {varPanelSrc === 'mock' ? (
+                                    <div className="monaco-json-var-panel-body px-2 py-2">
+                                        <p className="text-xs text-muted-foreground">{t('vars.mockVarHint')}</p>
+                                        <p className="mt-1 truncate font-mono text-xs text-foreground">
+                                            {resolveMockTemplateVariable(varPanelSeg.name) ?? ''}
+                                        </p>
                                     </div>
-                                </div>
+                                ) : (
+                                    <div className="monaco-json-var-panel-body">
+                                        <div className="monaco-json-var-value-box">
+                                            <input
+                                                type="text"
+                                                className="monaco-json-var-value-input"
+                                                value={editVarValue}
+                                                disabled={!activeEnvironmentId}
+                                                onChange={(e) => setEditVarValue(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault()
+                                                        void handleSaveVarValue(true)
+                                                    }
+                                                }}
+                                                onBlur={(e) => handleVarInputBlur(e, false)}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="monaco-json-var-panel-foot">
                                     <div className="monaco-json-var-panel-scope">
                                         <span
@@ -980,21 +1035,29 @@ function VarTemplateField({
                                                 'monaco-json-var-scope-badge',
                                                 varPanelSrc === 'environment'
                                                     ? 'monaco-json-var-scope-badge--env'
-                                                    : 'monaco-json-var-scope-badge--coll',
+                                                    : varPanelSrc === 'mock'
+                                                      ? 'monaco-json-var-scope-badge--mock'
+                                                      : 'monaco-json-var-scope-badge--coll',
                                             )}
                                         >
-                                            {varPanelSrc === 'environment' ? 'E' : 'C'}
+                                            {varPanelSrc === 'environment'
+                                                ? 'E'
+                                                : varPanelSrc === 'mock'
+                                                  ? 'M'
+                                                  : 'C'}
                                         </span>
                                         <span>{sourceLabel(varPanelSeg.name)}</span>
                                     </div>
-                                    <button
-                                        type="button"
-                                        className="monaco-json-var-link"
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={openEnvironmentSelector}
-                                    >
-                                        {t('vars.jsonBodyVariablesLink')}
-                                    </button>
+                                    {varPanelSrc !== 'mock' ? (
+                                        <button
+                                            type="button"
+                                            className="monaco-json-var-link"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={openEnvironmentSelector}
+                                        >
+                                            {t('vars.jsonBodyVariablesLink')}
+                                        </button>
+                                    ) : null}
                                 </div>
                             </>
                         ) : (
@@ -1059,42 +1122,119 @@ function VarTemplateField({
                     <div
                         data-var-template-suggest
                         role="listbox"
-                        className="fixed z-[100] flex max-h-48 min-w-[220px] max-w-sm flex-col overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md"
+                        className="fixed z-[100] flex max-h-64 min-w-[220px] max-w-sm flex-col overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md"
                         style={{ left: templateSuggest.x, top: templateSuggest.y }}
                     >
-                        <div className="border-b border-border px-2 py-1">
-                            <p className="text-[11px] font-medium text-muted-foreground">
-                                {t('vars.suggestTitle')}
-                            </p>
-                        </div>
-                        <div className="max-h-36 overflow-y-auto py-0.5">
-                            {filteredVarSuggestions.length === 0 ? (
-                                <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('vars.suggestEmpty')}</p>
+                        <div className="max-h-64 overflow-y-auto py-0.5">
+                            {suggestEntries.length === 0 ? (
+                                <div className="px-2 py-1.5">
+                                    <p className="text-[10px] leading-snug text-muted-foreground">
+                                        {t('vars.builtInVarsHint')}
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">{t('vars.suggestEmpty')}</p>
+                                </div>
                             ) : (
-                                filteredVarSuggestions.map((s, idx) => (
-                                    <button
-                                        key={s.key}
-                                        type="button"
-                                        role="option"
-                                        aria-selected={idx === suggestHighlight}
-                                        ref={(el) => {
-                                            if (el) suggestRowRef.current.set(idx, el)
-                                            else suggestRowRef.current.delete(idx)
-                                        }}
-                                        className={cn(
-                                            'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent',
-                                            idx === suggestHighlight && 'bg-accent',
-                                        )}
-                                        onMouseDown={(ev) => ev.preventDefault()}
-                                        onMouseEnter={() => setSuggestHighlight(idx)}
-                                        onClick={() => applyTemplateSuggestion(s.key)}
-                                    >
-                                        <span className="truncate font-mono text-foreground">{s.key}</span>
-                                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                                            {sourceLabel(s.key)}
-                                        </span>
-                                    </button>
-                                ))
+                                <>
+                                    {filteredBuiltInSuggestions.length > 0 ? (
+                                        <>
+                                            <p
+                                                className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                            >
+                                                {t('vars.suggestSectionBuiltIn')}
+                                            </p>
+                                            {visibleBuiltInSubgroups.map((sg) => (
+                                                <div key={sg.id}>
+                                                    <p
+                                                        className="sticky top-0 z-[1] bg-popover px-2 py-0.5 text-xs text-muted-foreground"
+                                                    >
+                                                        {t(`vars.${sg.labelI18n}`)}
+                                                    </p>
+                                                    {sg.keys.map((mockKey) => {
+                                                        const idx = suggestEntries.findIndex(
+                                                            (e) => e.kind === 'builtin' && e.key === mockKey,
+                                                        )
+                                                        const descKey =
+                                                            MOCK_TEMPLATE_VARIABLE_DESC_I18N[
+                                                                mockKey as MockTemplateVariableKey
+                                                            ]
+                                                        return (
+                                                            <button
+                                                                key={mockKey}
+                                                                type="button"
+                                                                role="option"
+                                                                aria-selected={idx === suggestHighlight}
+                                                                ref={(el) => {
+                                                                    if (el) suggestRowRef.current.set(idx, el)
+                                                                    else suggestRowRef.current.delete(idx)
+                                                                }}
+                                                                className={cn(
+                                                                    'flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent',
+                                                                    idx === suggestHighlight && 'bg-accent',
+                                                                )}
+                                                                onMouseDown={(ev) => ev.preventDefault()}
+                                                                onMouseEnter={() => setSuggestHighlight(idx)}
+                                                                onClick={() => applyTemplateSuggestion(mockKey)}
+                                                            >
+                                                                <span className="min-w-0 shrink truncate font-mono text-foreground">
+                                                                    {`{{${mockKey}}}`}
+                                                                </span>
+                                                                <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                                                                    {t(`vars.${descKey}`)}
+                                                                </span>
+                                                                <span className="zreq-var-built-in-badge">
+                                                                    {t('vars.sourceBuiltIn')}
+                                                                </span>
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            ))}
+                                        </>
+                                    ) : null}
+                                    {filteredEnvSuggestions.length > 0 ? (
+                                        <>
+                                            <p
+                                                className={cn(
+                                                    'px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground',
+                                                    filteredBuiltInSuggestions.length > 0 ? 'pt-1.5' : 'pt-1',
+                                                )}
+                                            >
+                                                {t('vars.suggestTitle')}
+                                            </p>
+                                            {filteredEnvSuggestions.map((s) => {
+                                                const idx = suggestEntries.findIndex(
+                                                    (e) => e.kind === 'env' && e.key === s.key,
+                                                )
+                                                return (
+                                                    <button
+                                                        key={s.key}
+                                                        type="button"
+                                                        role="option"
+                                                        aria-selected={idx === suggestHighlight}
+                                                        ref={(el) => {
+                                                            if (el) suggestRowRef.current.set(idx, el)
+                                                            else suggestRowRef.current.delete(idx)
+                                                        }}
+                                                        className={cn(
+                                                            'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent',
+                                                            idx === suggestHighlight && 'bg-accent',
+                                                        )}
+                                                        onMouseDown={(ev) => ev.preventDefault()}
+                                                        onMouseEnter={() => setSuggestHighlight(idx)}
+                                                        onClick={() => applyTemplateSuggestion(s.key)}
+                                                    >
+                                                        <span className="truncate font-mono text-foreground">
+                                                            {`{{${s.key}}}`}
+                                                        </span>
+                                                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                                                            {sourceLabel(s.key)}
+                                                        </span>
+                                                    </button>
+                                                )
+                                            })}
+                                        </>
+                                    ) : null}
+                                </>
                             )}
                         </div>
                     </div>,
