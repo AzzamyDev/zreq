@@ -45,6 +45,9 @@ export default function WorkspaceSwitcher() {
         addWorkspace,
     } = useAppStore()
     const [open, setOpen] = useState(false)
+    /** cmdk keyboard highlight - must track active workspace id, not list index 0. */
+    const [listValue, setListValue] = useState('')
+    const [search, setSearch] = useState('')
 
     const [createOpen, setCreateOpen] = useState(false)
     const [createName, setCreateName] = useState('')
@@ -57,6 +60,9 @@ export default function WorkspaceSwitcher() {
     const isWorkspaceOwner = (w: Workspace) => user != null && w.userId === user.id
 
     const active = workspaces.find((w) => w.id === activeWorkspaceId)
+
+    const workspaceItemValue = (w: Workspace) => `${w.id} ${w.name}`
+    const activeItemValue = active ? workspaceItemValue(active) : ''
 
     const openCreate = () => {
         setCreateName('')
@@ -106,7 +112,18 @@ export default function WorkspaceSwitcher() {
 
     return (
         <>
-            <Popover open={open} onOpenChange={setOpen}>
+            <Popover
+                open={open}
+                onOpenChange={(next) => {
+                    setOpen(next)
+                    if (next) {
+                        setSearch('')
+                        setListValue(activeItemValue)
+                    } else {
+                        setSearch('')
+                    }
+                }}
+            >
                 <PopoverTrigger
                     className={cn(
                         'min-w-[200px] border-input bg-background hover:bg-muted/50 inline-flex h-7 max-w-[200px] items-center justify-between gap-1 rounded-lg border px-2.5 text-xs font-normal shadow-xs outline-none transition-colors',
@@ -120,16 +137,26 @@ export default function WorkspaceSwitcher() {
                     <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
                 </PopoverTrigger>
                 <PopoverContent className="w-64 p-0" align="start" sideOffset={6}>
-                    <Command>
-                        <CommandInput placeholder={t('workspace.searchWorkspaces')} />
+                    <Command value={listValue} onValueChange={setListValue}>
+                        <CommandInput
+                            placeholder={t('workspace.searchWorkspaces')}
+                            value={search}
+                            onValueChange={(s) => {
+                                setSearch(s)
+                                // Clearing the filter must not snap highlight back to index 0 (Default).
+                                if (!s.trim()) setListValue(activeItemValue)
+                            }}
+                        />
                         <CommandList>
                             <CommandEmpty>{t('workspace.noWorkspaceFound')}</CommandEmpty>
                             <CommandGroup>
                                 {workspaces.map((w) => (
                                     <CommandItem
                                         key={w.id}
-                                        value={`${w.id} ${w.name}`}
+                                        value={workspaceItemValue(w)}
                                         keywords={[w.name, String(w.id)]}
+                                        data-checked={w.id === activeWorkspaceId ? true : undefined}
+                                        aria-current={w.id === activeWorkspaceId ? 'true' : undefined}
                                         onSelect={() => {
                                             setActiveWorkspaceId(w.id)
                                             setOpen(false)
