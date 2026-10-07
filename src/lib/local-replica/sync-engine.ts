@@ -298,6 +298,7 @@ export async function pullRemoteFull(): Promise<boolean> {
 
         // Build sets of pending-writes by entity id for fast lookup
         const pendingColPatchIds = new Set<number>()
+        const pendingColCreateByWs = new Map<number, Set<number>>()
         const pendingEnvPatchIds = new Set<number>()
         const pendingEnvCreateByWs = new Map<number, Set<number>>()
         const pendingEnvPatchTempByWs = new Map<number, Set<number>>()
@@ -305,6 +306,14 @@ export async function pullRemoteFull(): Promise<boolean> {
         const pendingEnvDelIds = new Set<number>()
         for (const o of allPendingOps) {
             if (o.type === 'collection_patch') pendingColPatchIds.add(o.collectionId)
+            if (o.type === 'collection_create') {
+                let s = pendingColCreateByWs.get(o.workspaceId)
+                if (!s) {
+                    s = new Set()
+                    pendingColCreateByWs.set(o.workspaceId, s)
+                }
+                s.add(o.tempId)
+            }
             if (o.type === 'environment_patch') pendingEnvPatchIds.add(o.environmentId)
             if (o.type === 'environment_create') {
                 const wid = 'workspaceId' in o ? o.workspaceId : 0
@@ -400,9 +409,26 @@ export async function pullRemoteFull(): Promise<boolean> {
                 m.metaCollection[r.id] = { serverUpdatedAt: r.updatedAt, dirty: false }
             }
 
+            // Prune local collections missing from remote (mirror mergeRemoteEnvs rebuild).
+            // Keep: pending collection_create temps, open ConflictDialog, pending local delete.
             const key = String(workspaceId)
+            const remoteIds = new Set(remoteCols.map((c) => c.id))
+            const pendingCreates = pendingColCreateByWs.get(workspaceId) ?? new Set<number>()
+            const openConflictIds = new Set(
+                useSyncStore.getState().conflicts
+                    .filter((c) => c.kind === 'collection')
+                    .map((c) => c.entityId)
+            )
             const list = m.collectionsByWorkspaceId[key] ?? []
-            m.collectionsByWorkspaceId[key] = sortCollectionsByOrder(list)
+            const pruned = list.filter((c) => {
+                if (remoteIds.has(c.id)) return true
+                if (pendingCreates.has(c.id)) return true
+                if (openConflictIds.has(c.id)) return true
+                if (pendingDeletes.has(c.id)) return true
+                delete m.metaCollection[c.id]
+                return false
+            })
+            m.collectionsByWorkspaceId[key] = sortCollectionsByOrder(pruned)
         }
 
         for (let i = 0; i < remoteWs.length; i++) {
