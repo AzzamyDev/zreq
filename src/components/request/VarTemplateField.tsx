@@ -1125,7 +1125,7 @@ function VarTemplateField({
                         className="fixed z-[100] flex max-h-64 min-w-[220px] max-w-sm flex-col overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md"
                         style={{ left: templateSuggest.x, top: templateSuggest.y }}
                     >
-                        <div className="max-h-52 overflow-y-auto py-0.5">
+                        <div className="max-h-64 overflow-y-auto py-0.5">
                             {suggestEntries.length === 0 ? (
                                 <div className="px-2 py-1.5">
                                     <p className="text-[10px] leading-snug text-muted-foreground">
