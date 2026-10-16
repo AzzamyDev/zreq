@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { KV } from '../types'
+import { isKvEnabled } from './kv'
 import { parseUrlSegments, segmentsToUrl, type UrlSegment } from './urlSegments'
 
 export type SplitUrlQuery = {
@@ -78,7 +79,7 @@ export function parseQueryString(qs: string): Array<{ key: string; value: string
 /** Build query string from enabled params (without leading `?`). */
 export function composeQueryString(params: KV[]): string {
     return (params || [])
-        .filter((p) => p.enabled && p.key)
+        .filter((p) => isKvEnabled(p) && p.key)
         .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value || '')}`)
         .join('&')
 }

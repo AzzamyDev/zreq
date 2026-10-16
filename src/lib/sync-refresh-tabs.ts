@@ -1,5 +1,6 @@
 import type { ActiveRequest, Collection, Folder, RequestItem, RequestTab } from '@/types'
 import { withNormalizedQuery } from './query-params'
+import { normalizeKvList } from './kv'
 import { inferProtocolFromUrl } from './persist-request'
 
 function findRequestItemById(items: (Folder | RequestItem)[], itemId: string): RequestItem | null {
@@ -50,10 +51,10 @@ export function refreshTabsFromPulledCollections(
         const refreshed = withNormalizedQuery({
             method: item.method || 'GET',
             url: item.url || '',
-            headers: Array.isArray(item.headers) ? item.headers : [],
-            params: Array.isArray(item.params) ? item.params : [],
+            headers: normalizeKvList(item.headers),
+            params: normalizeKvList(item.params),
             body: item.body || { type: 'none', content: '' },
-            auth: item.auth ?? (tab.request.folderId ? { type: 'inherit' } : { type: 'none' }),
+            auth: item.auth ?? { type: 'inherit' },
             name: item.name || 'Untitled Request',
             itemId: item.id,
             scripts: item.scripts,

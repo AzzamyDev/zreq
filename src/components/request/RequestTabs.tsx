@@ -9,9 +9,10 @@ import ScriptsPanel from './ScriptsPanel'
 import WsMessageComposer from './WsMessageComposer'
 import WsSavedMessages from './WsSavedMessages'
 import type { KV, AuthConfig, RequestBody } from '../../types'
+import { isKvEnabled } from '../../lib/kv'
 
 function countActive(pairs: KV[]): number {
-    return pairs.filter((p) => p.enabled && p.key).length
+    return pairs.filter((p) => isKvEnabled(p) && p.key).length
 }
 
 function TabDot({ show }: { show: boolean }) {

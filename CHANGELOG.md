@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.3](https://github.com/AzzamyDev/zreq/compare/v1.4.2...v1.4.3) (2026-10-16)
+
+
+### Features
+
+* Postman import: scripts, saved responses, and auth inherit mapping
+* FormData VarTemplateField + urlencoded/body env var resolve
+* environment & variable duplicate; mock vars in env editor
+* default new-request auth to inherit; KV enabled defaults when omitted
+
+
+### Bug Fixes
+
+* nested mock/env template resolution and KV enabled semantics for import/MCP
+
+
 ## [1.4.2](https://github.com/AzzamyDev/zreq/compare/v1.4.1...v1.4.2) (2026-10-07)
 
 

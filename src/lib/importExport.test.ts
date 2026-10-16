@@ -287,3 +287,138 @@ describe('importCollections hoppscotch', () => {
         )
     })
 })
+
+describe('importCollections postman', () => {
+    it('maps event scripts to preRequest and postResponse', () => {
+        const postman = {
+            info: { name: 'Scripts Collection' },
+            item: [
+                {
+                    name: 'With Scripts',
+                    event: [
+                        {
+                            listen: 'prerequest',
+                            script: { exec: ["pm.environment.set('a', '1')", "console.log('pre')"] },
+                        },
+                        {
+                            listen: 'test',
+                            script: { exec: "pm.test('ok', () => {})" },
+                        },
+                    ],
+                    request: { method: 'GET', url: 'https://example.com' },
+                },
+            ],
+        }
+        const result = importCollections(JSON.stringify(postman), 'postman')
+        const req = result[0].items[0]
+        expect(req.type).toBe('request')
+        if (req.type !== 'request') return
+        expect(req.scripts?.preRequest).toBe("pm.environment.set('a', '1')\nconsole.log('pre')")
+        expect(req.scripts?.postResponse).toBe("pm.test('ok', () => {})")
+    })
+
+    it('maps response examples to savedResponses', () => {
+        const postman = {
+            info: { name: 'Examples' },
+            item: [
+                {
+                    name: 'Get User',
+                    request: {
+                        method: 'GET',
+                        url: 'https://api.example.com/users/1',
+                        header: [{ key: 'Accept', value: 'application/json' }],
+                    },
+                    response: [
+                        {
+                            name: '200 OK',
+                            originalRequest: {
+                                method: 'GET',
+                                url: 'https://api.example.com/users/1',
+                                header: [{ key: 'Accept', value: 'application/json' }],
+                            },
+                            status: 'OK',
+                            code: 200,
+                            header: [
+                                { key: 'Content-Type', value: 'application/json' },
+                            ],
+                            body: '{"id":1}',
+                        },
+                    ],
+                },
+            ],
+        }
+        const result = importCollections(JSON.stringify(postman), 'postman')
+        const req = result[0].items[0]
+        expect(req.type).toBe('request')
+        if (req.type !== 'request') return
+        expect(req.savedResponses).toHaveLength(1)
+        const saved = req.savedResponses![0]
+        expect(saved.name).toBe('200 OK')
+        expect(saved.response.status).toBe(200)
+        expect(saved.response.statusText).toBe('OK')
+        expect(saved.response.body).toBe('{"id":1}')
+        expect(saved.response.headers['Content-Type']).toBe('application/json')
+        expect(saved.response.durationMs).toBe(0)
+        expect(saved.requestSnapshot.method).toBe('GET')
+        expect(saved.requestSnapshot.url).toBe('https://api.example.com/users/1')
+        expect(saved.id).toBeTruthy()
+        expect(typeof saved.savedAt).toBe('number')
+    })
+
+    it('defaults auth to inherit and maps bearer auth', () => {
+        const postman = {
+            info: { name: 'Auth' },
+            item: [
+                {
+                    name: 'No Auth Field',
+                    request: { method: 'GET', url: 'https://example.com/a' },
+                },
+                {
+                    name: 'Bearer',
+                    request: {
+                        method: 'GET',
+                        url: 'https://example.com/b',
+                        auth: {
+                            type: 'bearer',
+                            bearer: [{ key: 'token', value: '{{token}}', type: 'string' }],
+                        },
+                    },
+                },
+                {
+                    name: 'No Auth',
+                    request: {
+                        method: 'GET',
+                        url: 'https://example.com/c',
+                        auth: { type: 'noauth' },
+                    },
+                },
+                {
+                    name: 'Unknown Auth',
+                    request: {
+                        method: 'GET',
+                        url: 'https://example.com/d',
+                        auth: { type: 'oauth2', oauth2: [] },
+                    },
+                },
+            ],
+        }
+        const result = importCollections(JSON.stringify(postman), 'postman')
+        const [none, bearer, noauth, unknown] = result[0].items
+        expect(none.type).toBe('request')
+        expect(bearer.type).toBe('request')
+        expect(noauth.type).toBe('request')
+        expect(unknown.type).toBe('request')
+        if (
+            none.type !== 'request' ||
+            bearer.type !== 'request' ||
+            noauth.type !== 'request' ||
+            unknown.type !== 'request'
+        ) {
+            return
+        }
+        expect(none.auth).toEqual({ type: 'inherit' })
+        expect(bearer.auth).toEqual({ type: 'bearer', token: '{{token}}' })
+        expect(noauth.auth).toEqual({ type: 'none' })
+        expect(unknown.auth).toEqual({ type: 'inherit' })
+    })
+})

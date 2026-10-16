@@ -7,6 +7,7 @@ import {
     Search,
     Plus,
     Trash2,
+    Copy,
     Pencil,
     Layers,
     Loader2,
@@ -31,6 +32,7 @@ import { useSyncStore } from '../../store/syncStore'
 import { useEnvironment } from '../../hooks/useEnvironment'
 import { importEnvironments, exportEnvironment, type ImportFormat } from '../../lib/importExport'
 import ImportFormatDialog from '../collection/ImportFormatDialog'
+import VarTemplateField from '../request/VarTemplateField'
 import { saveTextFile } from '../../lib/utils'
 import type { KV } from '../../types'
 import { toast } from 'sonner'
@@ -38,7 +40,7 @@ import { toast } from 'sonner'
 const AUTOSAVE_DEBOUNCE_MS = 700
 
 const VAR_ROW_GRID =
-    'grid grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center'
+    'grid grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,1fr)_4.5rem] items-center'
 
 function buildVarsPayload(localVars: KV[], draftKey: string, draftVal: string) {
     const pending =
@@ -297,6 +299,25 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         setLocalVars((prev) => prev.filter((p) => p.id !== id))
     }
 
+    const duplicatePair = (id: string) => {
+        setLocalVars((prev) => {
+            const idx = prev.findIndex((p) => p.id === id)
+            if (idx < 0) return prev
+            const source = prev[idx]
+            const suffix = t('requestTab.duplicateCopySuffix')
+            const baseKey = source.key.trimEnd()
+            const copy: KV = {
+                id: nanoid(),
+                key: baseKey ? `${baseKey}${suffix}` : '',
+                value: source.value,
+                enabled: source.enabled,
+            }
+            const next = [...prev]
+            next.splice(idx + 1, 0, copy)
+            return next
+        })
+    }
+
     const commitDraftRowIfNeeded = () => {
         const d = draftRowRef.current
         if (!d.key.trim() && !d.value.trim()) return
@@ -367,6 +388,17 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         if (selectedId === null) return
         await deleteEnvironment(selectedId)
         setSelectedId(null)
+    }
+
+    const handleDuplicateSelected = async () => {
+        if (!selectedEnv) return
+        const baseName = (editingName ? nameValue : selectedEnv.name).trim() || selectedEnv.name
+        const suffix = t('requestTab.duplicateCopySuffix')
+        const variables = buildVarsPayload(localVars, draftRow.key, draftRow.value)
+        const created = await createEnvironment(`${baseName}${suffix}`, variables)
+        if (!created) return
+        setSelectedId(created.id)
+        setEditingName(false)
     }
 
     const handleRename = async () => {
@@ -708,6 +740,17 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                                     type="button"
                                                     variant="ghost"
                                                     size="sm"
+                                                    className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                                                    onClick={() => void handleDuplicateSelected()}
+                                                    title={t('environment.duplicate')}
+                                                >
+                                                    <Copy className="size-3.5" />
+                                                    {t('environment.duplicate')}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
                                                     className="h-8 gap-1.5 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                                                     onClick={() => void handleDeleteSelected()}
                                                 >
@@ -749,7 +792,7 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                                     {t('common.value')}
                                                 </span>
                                             </div>
-                                            <div className="sr-only">{t('common.remove')}</div>
+                                            <div className="sr-only">{t('environment.variableActions')}</div>
                                         </div>
 
                                         {localVars.map((pair) => (
@@ -783,17 +826,25 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                                     />
                                                 </div>
                                                 <div className="min-w-0 border-l border-border/40 py-1 pr-1">
-                                                    <input
-                                                        type="text"
+                                                    <VarTemplateField
+                                                        wrap
                                                         value={pair.value}
-                                                        onChange={(e) =>
-                                                            updatePair(pair.id, 'value', e.target.value)
-                                                        }
+                                                        onChange={(v) => updatePair(pair.id, 'value', v)}
                                                         placeholder={t('common.value')}
-                                                        className="w-full rounded-md bg-transparent px-2 py-1 font-mono text-xs text-[color-mix(in_srgb,var(--dracula-cyan)_88%,white)] transition-colors focus:bg-muted/20 focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--dracula-cyan)_40%,transparent)]"
+                                                        className="w-full rounded-md px-2 py-1 transition-colors focus-within:bg-muted/20 focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--dracula-cyan)_40%,transparent)]"
+                                                        inputClassName="text-xs text-[color-mix(in_srgb,var(--dracula-cyan)_88%,white)]"
                                                     />
                                                 </div>
-                                                <div className="flex items-center justify-center">
+                                                <div className="flex items-center justify-center gap-0.5 pr-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => duplicatePair(pair.id)}
+                                                        className="flex cursor-pointer items-center justify-center rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                                                        title={t('environment.duplicateVariable')}
+                                                        aria-label={t('environment.duplicateVariable')}
+                                                    >
+                                                        <Copy className="size-3.5" />
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => deletePair(pair.id)}
@@ -827,13 +878,14 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
                                                 />
                                             </div>
                                             <div className="min-w-0 border-l border-border/40 py-1 pr-1">
-                                                <input
-                                                    type="text"
+                                                <VarTemplateField
+                                                    wrap
                                                     value={draftRow.value}
-                                                    onChange={(e) => setDraftField('value', e.target.value)}
-                                                    onBlur={handleDraftBlur}
+                                                    onChange={(v) => setDraftField('value', v)}
+                                                    onBlur={commitDraftRowIfNeeded}
                                                     placeholder={t('common.value')}
-                                                    className="w-full rounded-md bg-transparent px-2 py-1 font-mono text-xs italic text-muted-foreground focus:bg-muted/20 focus:text-foreground focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--dracula-green)_35%,transparent)]"
+                                                    className="w-full rounded-md px-2 py-1 transition-colors focus-within:bg-muted/20 focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--dracula-green)_35%,transparent)]"
+                                                    inputClassName="text-xs italic text-muted-foreground focus:text-foreground"
                                                 />
                                             </div>
                                             <div aria-hidden />

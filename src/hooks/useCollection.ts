@@ -293,7 +293,7 @@ export function useCollection() {
             headers: [],
             params: [],
             body: { type: 'none' as const, content: '' },
-            auth: parentFolderId ? { type: 'inherit' as const } : { type: 'none' as const },
+            auth: { type: 'inherit' as const },
             protocol: 'http' as const,
         }
         const collection = collections.find((c) => c.id === collectionId)
@@ -328,7 +328,7 @@ export function useCollection() {
             headers: [],
             params: [],
             body: { type: 'none' as const, content: '' },
-            auth: parentFolderId ? { type: 'inherit' as const } : { type: 'none' as const },
+            auth: { type: 'inherit' as const },
             protocol: 'ws' as const,
             subprotocols: '',
             savedMessages: [],

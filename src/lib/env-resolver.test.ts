@@ -89,6 +89,19 @@ describe('resolveEnvVars mock template variables', () => {
         expect(resolveEnvVars('{{$custom}}', { $custom: 'from-env' })).toBe('{{$custom}}')
         expect(resolveEnvVars('{{custom}}', { custom: 'plain' })).toBe('plain')
     })
+
+    it('resolves nested mocks inside env values ({{tes}} → {{$timestamp}})', () => {
+        expect(resolveEnvVars('{{tes}}', { tes: '{{$timestamp}}' })).toBe(String(fixedMs))
+        expect(resolveEnvVars('id={{tes}}', { tes: 'pre-{{$guid}}-post' })).toBe(
+            'id=pre-11111111-2222-4333-8444-555555555555-post',
+        )
+    })
+
+    it('resolves chained env refs that terminate in a mock', () => {
+        expect(
+            resolveEnvVars('{{a}}', { a: '{{b}}', b: '{{$isoTimestamp}}' }),
+        ).toBe(new Date(fixedMs).toISOString())
+    })
 })
 
 describe('getVariableSource for mocks', () => {
@@ -148,5 +161,25 @@ describe('resolveWebSocketRequest apikey auth', () => {
         }
         const resolved = resolveWebSocketRequest(req, {})
         expect(resolved.url).toBe('wss://echo.example.com/socket?token=abc')
+    })
+})
+
+describe('resolveRequest urlencoded body', () => {
+    it('resolves {{var}} in urlencoded pair keys and values', () => {
+        const pairs = [
+            { id: '1', key: '{{keyName}}', value: '{{token}}', enabled: true },
+            { id: '2', key: 'plain', value: 'keep', enabled: true },
+        ]
+        const req: ActiveRequest = {
+            ...baseRequest(),
+            method: 'POST',
+            body: { type: 'urlencoded', content: JSON.stringify(pairs) },
+        }
+        const resolved = resolveRequest(req, { keyName: 'api_key', token: 'secret' })
+        expect(resolved.body_type).toBe('urlencoded')
+        expect(resolved.headers['Content-Type']).toBe('application/x-www-form-urlencoded')
+        const out = JSON.parse(resolved.body!)
+        expect(out[0]).toMatchObject({ key: 'api_key', value: 'secret' })
+        expect(out[1]).toMatchObject({ key: 'plain', value: 'keep' })
     })
 })

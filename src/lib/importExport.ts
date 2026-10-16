@@ -1,4 +1,12 @@
-import type { AuthConfig, Collection, Environment, RequestBody } from '../types'
+import type {
+    AuthConfig,
+    Collection,
+    Environment,
+    HttpMethod,
+    KV,
+    RequestBody,
+    SavedResponse,
+} from '../types'
 import { nanoid } from 'nanoid'
 import { normalizeRequestQuery, splitUrlQuery } from './query-params'
 
@@ -303,6 +311,178 @@ function normalizePostmanRequest(item: any): any {
     return r || {}
 }
 
+function postmanAuthParam(list: unknown, key: string): string {
+    if (!Array.isArray(list)) return ''
+    const row = list.find(
+        (entry) => entry && typeof entry === 'object' && (entry as Record<string, unknown>).key === key
+    ) as Record<string, unknown> | undefined
+    if (!row || row.value == null) return ''
+    return String(row.value)
+}
+
+function importPostmanAuth(auth: unknown): AuthConfig {
+    if (!auth || typeof auth !== 'object') return { type: 'inherit' }
+    const row = auth as Record<string, unknown>
+    const type = typeof row.type === 'string' ? row.type : ''
+
+    if (type === 'noauth') return { type: 'none' }
+    if (type === 'bearer') {
+        return { type: 'bearer', token: postmanAuthParam(row.bearer, 'token') }
+    }
+    if (type === 'basic') {
+        return {
+            type: 'basic',
+            username: postmanAuthParam(row.basic, 'username'),
+            password: postmanAuthParam(row.basic, 'password'),
+        }
+    }
+    if (type === 'apikey') {
+        const inLoc = postmanAuthParam(row.apikey, 'in')
+        return {
+            type: 'apikey',
+            key: postmanAuthParam(row.apikey, 'key'),
+            value: postmanAuthParam(row.apikey, 'value'),
+            addTo: inLoc === 'query' ? 'query' : 'header',
+        }
+    }
+    if (type === 'jwt') {
+        return {
+            type: 'jwt',
+            token: postmanAuthParam(row.jwt, 'token'),
+            prefix: postmanAuthParam(row.jwt, 'prefix') || 'Bearer',
+        }
+    }
+    return { type: 'inherit' }
+}
+
+function joinPostmanScriptExec(exec: unknown): string {
+    if (Array.isArray(exec)) return exec.map((line) => (line == null ? '' : String(line))).join('\n')
+    if (typeof exec === 'string') return exec
+    return ''
+}
+
+function importPostmanScripts(item: Record<string, unknown>): {
+    preRequest?: string
+    postResponse?: string
+} | undefined {
+    const events = Array.isArray(item.event) ? item.event : []
+    const scripts: { preRequest?: string; postResponse?: string } = {}
+    for (const ev of events) {
+        if (!ev || typeof ev !== 'object') continue
+        const row = ev as Record<string, unknown>
+        const script = row.script && typeof row.script === 'object' ? (row.script as Record<string, unknown>) : null
+        const code = joinPostmanScriptExec(script?.exec).trim()
+        if (!code) continue
+        if (row.listen === 'prerequest') scripts.preRequest = joinPostmanScriptExec(script?.exec)
+        else if (row.listen === 'test') scripts.postResponse = joinPostmanScriptExec(script?.exec)
+    }
+    return Object.keys(scripts).length > 0 ? scripts : undefined
+}
+
+function mapPostmanHeaders(headerList: unknown): KV[] {
+    return (Array.isArray(headerList) ? headerList : []).map((h: any) => ({
+        id: nanoid(),
+        key: h?.key ?? '',
+        value: h?.value == null ? '' : String(h.value),
+        // Postman uses `disabled`; missing means enabled. Prefer explicit `enabled` if present.
+        enabled: typeof h?.enabled === 'boolean' ? h.enabled : h?.disabled !== true,
+    }))
+}
+
+function buildPostmanRequestFields(req: any): {
+    method: HttpMethod | string
+    url: string
+    headers: KV[]
+    params: KV[]
+    body: RequestBody
+    auth: AuthConfig
+    protocol: 'http' | 'ws'
+} {
+    const method = req.method || 'GET'
+    const rawUrl = typeof req.url === 'string' ? req.url : req.url?.raw || ''
+    const queryList = Array.isArray(req.url?.query) ? req.url.query : []
+    const paramsFromList = queryList.map((q: any) => ({
+        id: nanoid(),
+        key: q.key ?? '',
+        value: q.value == null ? '' : String(q.value),
+        enabled: typeof q.enabled === 'boolean' ? q.enabled : q.disabled !== true,
+    }))
+    const normalized =
+        queryList.length > 0
+            ? { url: splitUrlQuery(rawUrl).baseUrl, params: paramsFromList }
+            : normalizeRequestQuery({ url: rawUrl, params: [] })
+    const isWs = /^wss?:\/\//i.test(normalized.url)
+    return {
+        method,
+        url: normalized.url,
+        headers: mapPostmanHeaders(req.header),
+        params: normalized.params,
+        body: importPostmanBody(req),
+        auth: req.auth != null ? importPostmanAuth(req.auth) : { type: 'inherit' },
+        protocol: isWs ? 'ws' : 'http',
+    }
+}
+
+function importPostmanSavedResponses(
+    item: Record<string, unknown>,
+    fallbackSnapshot: SavedResponse['requestSnapshot']
+): SavedResponse[] | undefined {
+    const examples = Array.isArray(item.response) ? item.response : []
+    if (examples.length === 0) return undefined
+
+    const saved = examples
+        .filter((ex): ex is Record<string, unknown> => !!ex && typeof ex === 'object')
+        .map((ex) => {
+            const headersList = Array.isArray(ex.header) ? ex.header : []
+            const headers: Record<string, string> = {}
+            for (const h of headersList) {
+                if (!h || typeof h !== 'object') continue
+                const row = h as Record<string, unknown>
+                const key = row.key == null ? '' : String(row.key)
+                if (!key) continue
+                headers[key] = row.value == null ? '' : String(row.value)
+            }
+            const body =
+                typeof ex.body === 'string'
+                    ? ex.body
+                    : ex.body != null
+                      ? JSON.stringify(ex.body)
+                      : ''
+            const sizeBytes =
+                typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(body).length : body.length
+
+            let requestSnapshot = fallbackSnapshot
+            if (ex.originalRequest && typeof ex.originalRequest === 'object') {
+                const fields = buildPostmanRequestFields(ex.originalRequest)
+                requestSnapshot = {
+                    method: (fields.method as HttpMethod) || fallbackSnapshot.method,
+                    url: fields.url,
+                    headers: fields.headers,
+                    params: fields.params,
+                    body: fields.body,
+                    auth: fields.auth,
+                }
+            }
+
+            return {
+                id: nanoid(),
+                ...(typeof ex.name === 'string' && ex.name ? { name: ex.name } : {}),
+                response: {
+                    status: typeof ex.code === 'number' ? ex.code : 0,
+                    statusText: typeof ex.status === 'string' ? ex.status : '',
+                    headers,
+                    body,
+                    durationMs: 0,
+                    sizeBytes,
+                },
+                requestSnapshot,
+                savedAt: Date.now(),
+            } satisfies SavedResponse
+        })
+
+    return saved.length > 0 ? saved : undefined
+}
+
 function importPostmanBody(req: any): RequestBody {
     const b = req.body
     if (!b || typeof b.mode !== 'string') {
@@ -323,7 +503,7 @@ function importPostmanBody(req: any): RequestBody {
             id: nanoid(),
             key: q.key ?? '',
             value: q.value ?? '',
-            enabled: !q.disabled,
+            enabled: typeof q.enabled === 'boolean' ? q.enabled : q.disabled !== true,
         }))
         if (pairs.length === 0) return { type: 'none', content: '' }
         return { type: 'urlencoded', content: JSON.stringify(pairs) }
@@ -336,7 +516,7 @@ function importPostmanBody(req: any): RequestBody {
                 id: nanoid(),
                 key: f.key ?? '',
                 value: f.value ?? '',
-                enabled: !f.disabled,
+                enabled: typeof f.enabled === 'boolean' ? f.enabled : f.disabled !== true,
             }))
         if (pairs.length === 0) return { type: 'none', content: '' }
         return { type: 'form-data', content: JSON.stringify(pairs) }
@@ -661,37 +841,30 @@ function importPostmanItems(items: any[]): any[] {
             }
         }
         const req = normalizePostmanRequest(item)
-        const method = req.method || 'GET'
-        const rawUrl = typeof req.url === 'string' ? req.url : req.url?.raw || ''
-        const headerList = Array.isArray(req.header) ? req.header : []
-        const queryList = Array.isArray(req.url?.query) ? req.url.query : []
-        const paramsFromList = queryList.map((q: any) => ({
-            id: nanoid(),
-            key: q.key,
-            value: q.value,
-            enabled: !q.disabled,
-        }))
-        const normalized =
-            queryList.length > 0
-                ? { url: splitUrlQuery(rawUrl).baseUrl, params: paramsFromList }
-                : normalizeRequestQuery({ url: rawUrl, params: [] })
-        const isWs = /^wss?:\/\//i.test(normalized.url)
+        const fields = buildPostmanRequestFields(req)
+        const scripts = importPostmanScripts(item)
+        const requestSnapshot: SavedResponse['requestSnapshot'] = {
+            method: (fields.method as HttpMethod) || 'GET',
+            url: fields.url,
+            headers: fields.headers,
+            params: fields.params,
+            body: fields.body,
+            auth: fields.auth,
+        }
+        const savedResponses = importPostmanSavedResponses(item, requestSnapshot)
         return {
             id: nanoid(),
             type: 'request',
             name: item.name ?? 'Untitled',
-            method,
-            url: normalized.url,
-            protocol: isWs ? 'ws' : 'http',
-            headers: headerList.map((h: any) => ({
-                id: nanoid(),
-                key: h.key,
-                value: h.value,
-                enabled: !h.disabled,
-            })),
-            params: normalized.params,
-            body: importPostmanBody(req),
-            auth: { type: 'none' },
+            method: fields.method,
+            url: fields.url,
+            protocol: fields.protocol,
+            headers: fields.headers,
+            params: fields.params,
+            body: fields.body,
+            auth: fields.auth,
+            ...(scripts ? { scripts } : {}),
+            ...(savedResponses ? { savedResponses } : {}),
         }
     })
 }

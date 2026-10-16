@@ -225,7 +225,10 @@
     "importNothingCreated": "No environments were created. Check that a workspace is selected and try again.",
     "importedEnvironments": "Imported {{count}} environment(s)",
     "unsaved": "Unsaved changes",
-    "autoSaveSoon": "Will save automatically when you pause typing."
+    "autoSaveSoon": "Will save automatically when you pause typing.",
+    "duplicateVariable": "Duplicate",
+    "duplicate": "Duplicate",
+    "variableActions": "Actions"
   },
   "saveRequest": {
     "title": "Save Request",

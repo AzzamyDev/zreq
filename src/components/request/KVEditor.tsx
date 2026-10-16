@@ -13,6 +13,7 @@ import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import type { KV } from '../../types'
 import type { VariableSuggestionScope } from '../../lib/env-resolver'
+import { isKvEnabled } from '../../lib/kv'
 import { GripVertical, Trash2 } from 'lucide-react'
 import VarTemplateField from './VarTemplateField'
 import { cn } from '../../lib/utils'
@@ -69,7 +70,7 @@ const SortableKVRow = memo(function SortableKVRow({
             className={cn(
                 'group col-span-5 grid grid-cols-subgrid border-b border-border/50 transition-colors hover:bg-muted/15',
                 TABLE_GRID,
-                !pair.enabled && 'opacity-50'
+                !isKvEnabled(pair) && 'opacity-50'
             )}
         >
             <div
@@ -83,7 +84,7 @@ const SortableKVRow = memo(function SortableKVRow({
             <div className="flex items-center justify-center border-r border-border/40">
                 <input
                     type="checkbox"
-                    checked={pair.enabled}
+                    checked={isKvEnabled(pair)}
                     onChange={e => onUpdate(pair.id, 'enabled', e.target.checked)}
                     className="cursor-pointer accent-primary"
                 />
@@ -166,7 +167,7 @@ export default function KVEditor({
     const { allEnabled, someEnabled } = useMemo(() => {
         const n = pairs.length
         if (n === 0) return { allEnabled: false, someEnabled: false }
-        const on = pairs.filter(p => p.enabled).length
+        const on = pairs.filter(p => isKvEnabled(p)).length
         return { allEnabled: on === n, someEnabled: on > 0 && on < n }
     }, [pairs])
 

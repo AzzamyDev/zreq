@@ -9,14 +9,23 @@ import {
 
 export type TemplateVariableSource = 'environment' | 'folder' | 'collection' | 'mock' | 'none'
 
-export function resolveEnvVars(text: string, vars: Record<string, string>): string {
+/**
+ * Replace `{{name}}` / `{{$mock}}` in text. Env lookups re-resolve the substituted
+ * value (depth-limited) so nested mocks like env `tes={{$timestamp}}` work when
+ * request text uses `{{tes}}` — even if `vars` was not pre-expanded.
+ */
+export function resolveEnvVars(text: string, vars: Record<string, string>, depth = 0): string {
+    if (depth > 12) return text
     return text.replace(/\{\{([^}]+)\}\}/g, (match, key: string) => {
         const trimmed = key.trim()
         if (trimmed.startsWith('$')) {
             const mock = resolveMockTemplateVariable(trimmed)
             return mock ?? match
         }
-        return vars[trimmed] ?? match
+        const v = vars[trimmed]
+        if (v === undefined) return match
+        if (v.includes('{{')) return resolveEnvVars(v, vars, depth + 1)
+        return v
     })
 }
 
@@ -218,7 +227,7 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
     const { baseUrl } = splitUrlQuery(req.url || '')
     let url = resolveEnvVars(baseUrl, vars)
 
-    const enabledParams = (req.params || []).filter((p) => p.enabled && p.key)
+    const enabledParams = (req.params || []).filter((p) => p.enabled !== false && p.key)
     if (enabledParams.length > 0) {
         const qs = enabledParams
             .map(
@@ -230,7 +239,7 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
     }
 
     const headers: Record<string, string> = {}
-    for (const h of (req.headers || []).filter((h) => h.enabled && h.key)) {
+    for (const h of (req.headers || []).filter((h) => h.enabled !== false && h.key)) {
         headers[resolveEnvVars(h.key, vars)] = resolveEnvVars(h.value || '', vars)
     }
 
@@ -277,7 +286,23 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
         body = resolveEnvVars(req.body.content, vars)
     } else if (bodyType === 'urlencoded') {
         if (req.body?.content) {
-            body = req.body.content
+            try {
+                const rows = JSON.parse(req.body.content) as unknown
+                if (Array.isArray(rows)) {
+                    const resolvedRows = rows
+                        .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+                        .map((row) => ({
+                            ...row,
+                            key: resolveEnvVars(String(row.key ?? ''), vars),
+                            value: resolveEnvVars(String(row.value ?? ''), vars),
+                        }))
+                    body = JSON.stringify(resolvedRows)
+                } else {
+                    body = resolveEnvVars(req.body.content, vars)
+                }
+            } catch {
+                body = resolveEnvVars(req.body.content, vars)
+            }
             if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded'
         }
     } else if (bodyType === 'form-data') {
@@ -337,7 +362,7 @@ export function resolveWebSocketRequest(req: ActiveRequest, vars: Record<string,
     }
 
     const headers: Record<string, string> = {}
-    for (const h of (req.headers || []).filter((h) => h.enabled && h.key)) {
+    for (const h of (req.headers || []).filter((h) => h.enabled !== false && h.key)) {
         headers[resolveEnvVars(h.key, vars)] = resolveEnvVars(h.value || '', vars)
     }
 

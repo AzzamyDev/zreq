@@ -12,7 +12,9 @@ import {
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { KV } from '../../types'
+import type { VariableSuggestionScope } from '../../lib/env-resolver'
 import { GripVertical, Trash2 } from 'lucide-react'
+import VarTemplateField from './VarTemplateField'
 import { cn } from '../../lib/utils'
 
 export type FormDataValueType = 'text' | 'file'
@@ -72,6 +74,7 @@ interface FormDataEditorProps {
     pairs: FormDataPair[]
     onChange: (pairs: FormDataPair[]) => void
     sectionTitle?: string
+    variableSuggestionScope?: VariableSuggestionScope
 }
 
 interface SortableFormRowProps {
@@ -82,6 +85,7 @@ interface SortableFormRowProps {
     onUpdate: (id: string, patch: Partial<FormDataPair>) => void
     onDelete: (id: string) => void
     onPickFiles: (files: FileList | null) => void
+    variableSuggestionScope?: VariableSuggestionScope
 }
 
 async function fileToBase64(file: File): Promise<string> {
@@ -102,6 +106,7 @@ const SortableFormRow = memo(function SortableFormRow({
     onUpdate,
     onDelete,
     onPickFiles,
+    variableSuggestionScope,
 }: SortableFormRowProps) {
     const { t } = useTranslation()
     const valueType = pair.valueType ?? 'text'
@@ -206,12 +211,14 @@ const SortableFormRow = memo(function SortableFormRow({
                         <span className="truncate text-xs text-muted-foreground">{fileLabel}</span>
                     </div>
                 ) : (
-                    <input
-                        type="text"
+                    <VarTemplateField
+                        wrap
                         value={pair.value}
-                        onChange={e => onUpdate(pair.id, { value: e.target.value })}
+                        onChange={(v) => onUpdate(pair.id, { value: v })}
+                        className="w-full px-0 py-0"
+                        inputClassName="text-xs"
                         placeholder={valuePlaceholder}
-                        className="w-full bg-transparent px-0 py-0 text-xs leading-normal focus:outline-none"
+                        variableSuggestionScope={variableSuggestionScope}
                     />
                 )}
             </div>
@@ -229,7 +236,12 @@ const SortableFormRow = memo(function SortableFormRow({
     )
 })
 
-export default function FormDataEditor({ pairs, onChange, sectionTitle }: FormDataEditorProps) {
+export default function FormDataEditor({
+    pairs,
+    onChange,
+    sectionTitle,
+    variableSuggestionScope,
+}: FormDataEditorProps) {
     const { t } = useTranslation()
     const kp = t('common.key')
     const vp = t('common.value')
@@ -385,6 +397,7 @@ export default function FormDataEditor({ pairs, onChange, sectionTitle }: FormDa
                                     onUpdate={updatePair}
                                     onDelete={deletePair}
                                     onPickFiles={files => void pickFilesForPair(pair.id, files)}
+                                    variableSuggestionScope={variableSuggestionScope}
                                 />
                             ))}
                         </SortableContext>
@@ -424,14 +437,21 @@ export default function FormDataEditor({ pairs, onChange, sectionTitle }: FormDa
                                 {draftType === 'file' ? (
                                     <span className="text-xs text-muted-foreground/70">{t('request.formDataAddRowHint')}</span>
                                 ) : (
-                                    <input
-                                        type="text"
+                                    <VarTemplateField
+                                        wrap
                                         value={draftValue}
-                                        onChange={e => setDraftValue(e.target.value)}
+                                        onChange={setDraftValue}
                                         onBlur={commitDraft}
-                                        onKeyDown={handleDraftKeyDown}
+                                        inputOnKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === 'Tab') {
+                                                e.preventDefault()
+                                                commitDraft()
+                                            }
+                                        }}
+                                        className="w-full px-0 py-0"
+                                        inputClassName="text-xs"
                                         placeholder={vp}
-                                        className="w-full bg-transparent px-0 py-0 text-xs leading-normal focus:outline-none"
+                                        variableSuggestionScope={variableSuggestionScope}
                                     />
                                 )}
                             </div>

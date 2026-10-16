@@ -225,7 +225,10 @@
     "importNothingCreated": "Tidak ada environment yang dibuat. Pastikan workspace dipilih dan coba lagi.",
     "importedEnvironments": "Berhasil impor {{count}} environment",
     "unsaved": "Belum disimpan",
-    "autoSaveSoon": "Akan disimpan otomatis saat Anda berhenti mengetik."
+    "autoSaveSoon": "Akan disimpan otomatis saat Anda berhenti mengetik.",
+    "duplicateVariable": "Duplikat",
+    "duplicate": "Duplikat",
+    "variableActions": "Aksi"
   },
   "saveRequest": {
     "title": "Simpan permintaan",

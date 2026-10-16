@@ -20,6 +20,7 @@ import type {
 } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 import { withNormalizedQuery } from '../lib/query-params'
+import { normalizeKvList } from '../lib/kv'
 import { inferProtocolFromUrl } from '../lib/persist-request'
 import { refreshTabsFromPulledCollections } from '../lib/sync-refresh-tabs'
 import { rangeSelectIds, type SidebarSelection } from '../lib/collection-tree-select'
@@ -165,7 +166,7 @@ const defaultRequest: ActiveRequest = {
     headers: [],
     params: [],
     body: { type: 'none', content: '' },
-    auth: { type: 'none' },
+    auth: { type: 'inherit' },
     name: 'Untitled Request',
     protocol: 'http',
 }
@@ -714,12 +715,10 @@ export const useAppStore = create<AppState>()(
                 const req: ActiveRequest = withNormalizedQuery({
                     method: item.method || 'GET',
                     url: item.url || '',
-                    headers: Array.isArray(item.headers) ? item.headers : [],
-                    params: Array.isArray(item.params) ? item.params : [],
+                    headers: normalizeKvList(item.headers),
+                    params: normalizeKvList(item.params),
                     body: item.body || { type: 'none', content: '' },
-                    auth:
-                        item.auth ??
-                        (ctx?.folderId ? { type: 'inherit' } : { type: 'none' }),
+                    auth: item.auth ?? { type: 'inherit' },
                     name: item.name || 'Untitled Request',
                     itemId: item.id,
                     scripts: item.scripts,
@@ -764,8 +763,8 @@ export const useAppStore = create<AppState>()(
                 const req: ActiveRequest = withNormalizedQuery({
                     method: snap.method || 'GET',
                     url: snap.url || '',
-                    headers: Array.isArray(snap.headers) ? snap.headers : [],
-                    params: Array.isArray(snap.params) ? snap.params : [],
+                    headers: normalizeKvList(snap.headers),
+                    params: normalizeKvList(snap.params),
                     body: snap.body || { type: 'none', content: '' },
                     auth: snap.auth ?? { type: 'none' },
                     name: saved.name || `${item.name || 'Untitled Request'} (saved)`,
