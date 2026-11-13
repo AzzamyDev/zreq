@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, memo, type CSSProperties } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, memo, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
 import {
@@ -67,6 +67,7 @@ const SortableKVRow = memo(function SortableKVRow({
         <div
             ref={setNodeRef}
             style={style}
+            data-kv-row={pair.id}
             className={cn(
                 'group col-span-5 grid grid-cols-subgrid border-b border-border/50 transition-colors hover:bg-muted/15',
                 TABLE_GRID,
@@ -94,11 +95,18 @@ const SortableKVRow = memo(function SortableKVRow({
                     type="text"
                     value={pair.key}
                     onChange={e => onUpdate(pair.id, 'key', e.target.value)}
+                    onKeyDown={e => {
+                        if (e.key !== 'Tab' || e.shiftKey) return
+                        const valueInput = e.currentTarget.closest('[data-kv-row]')?.querySelector<HTMLInputElement>('[data-kv-value] input')
+                        if (!valueInput) return
+                        e.preventDefault()
+                        valueInput.focus()
+                    }}
                     placeholder={keyPlaceholder}
                     className="w-full bg-transparent px-0 py-0 font-mono text-xs leading-normal focus:outline-none"
                 />
             </div>
-            <div className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
+            <div data-kv-value="" className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
                 <VarTemplateField
                     wrap
                     value={pair.value}
@@ -135,6 +143,11 @@ export default function KVEditor({
     const vp = valuePlaceholder ?? t('common.value')
     const [draftKey, setDraftKey] = useState('')
     const [draftValue, setDraftValue] = useState('')
+    const draftKeyRef = useRef(draftKey)
+    const draftValueRef = useRef(draftValue)
+    draftKeyRef.current = draftKey
+    draftValueRef.current = draftValue
+    const pendingValueFocus = useRef<string | null>(null)
     const [bulkMode, setBulkMode] = useState(false)
     const [bulkText, setBulkText] = useState('')
     const selectAllRef = useRef<HTMLInputElement>(null)
@@ -185,20 +198,41 @@ export default function KVEditor({
         onChange(pairs.map(p => ({ ...p, enabled: enable })))
     }
 
-    const commitDraft = useCallback(() => {
-        if (!draftKey.trim()) return
+    const commitDraft = useCallback((focusValue = false) => {
+        const key = draftKeyRef.current
+        const value = draftValueRef.current
+        if (!key.trim()) return
+        const id = nanoid()
         onChangeRef.current([
             ...pairsRef.current,
-            { id: nanoid(), key: draftKey, value: draftValue, enabled: true },
+            { id, key, value, enabled: true },
         ])
+        draftKeyRef.current = ''
+        draftValueRef.current = ''
         setDraftKey('')
         setDraftValue('')
-    }, [draftKey, draftValue])
+        if (focusValue === true) pendingValueFocus.current = id
+    }, [])
+
+    useLayoutEffect(() => {
+        const id = pendingValueFocus.current
+        if (!id) return
+        const input = document.querySelector<HTMLInputElement>(`[data-kv-row="${globalThis.CSS.escape(id)}"] [data-kv-value] input`)
+        if (!input) return
+        pendingValueFocus.current = null
+        input.focus()
+    })
 
     const handleDraftKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
+        if (e.key === 'Tab' && !e.shiftKey) {
+            if (!draftKeyRef.current.trim()) return
             e.preventDefault()
-            commitDraft()
+            commitDraft(true)
+            return
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault()
+            commitDraft(true)
         }
     }
 
@@ -313,7 +347,7 @@ export default function KVEditor({
                                     type="text"
                                     value={draftKey}
                                     onChange={e => setDraftKey(e.target.value)}
-                                    onBlur={commitDraft}
+                                    onBlur={() => commitDraft()}
                                     onKeyDown={handleDraftKeyDown}
                                     placeholder={kp}
                                     className="w-full bg-transparent px-0 py-0 font-mono text-xs leading-normal focus:outline-none"
@@ -324,11 +358,11 @@ export default function KVEditor({
                                     wrap
                                     value={draftValue}
                                     onChange={setDraftValue}
-                                    onBlur={commitDraft}
+                                    onBlur={() => commitDraft()}
                                     inputOnKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === 'Tab') {
+                                        if ((e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) && draftKeyRef.current.trim()) {
                                             e.preventDefault()
-                                            commitDraft()
+                                            commitDraft(false)
                                         }
                                     }}
                                     className="w-full px-0 py-0"

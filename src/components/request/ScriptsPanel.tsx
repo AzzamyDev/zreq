@@ -29,7 +29,7 @@ export default function ScriptsPanel({
     return (
         <div className="flex h-full min-h-0">
             <nav
-                className="flex w-[9.5rem] shrink-0 flex-col gap-0.5 border-r border-border bg-muted/10 p-2 pt-3"
+                className="flex w-[7.6rem] shrink-0 flex-col gap-[0.1rem] border-r border-border bg-muted/10 p-[0.4rem] pt-[0.6rem]"
                 aria-label={t('request.scripts')}
             >
                 {NAV.map((item) => (
@@ -38,7 +38,7 @@ export default function ScriptsPanel({
                         type="button"
                         onClick={() => setSection(item.id)}
                         className={cn(
-                            'relative rounded-md px-3 py-2 text-left text-sm transition-colors',
+                            'relative rounded-md px-[0.6rem] py-[0.4rem] text-left text-[0.7rem] transition-colors',
                             section === item.id
                                 ? 'bg-muted text-foreground shadow-sm'
                                 : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -47,7 +47,7 @@ export default function ScriptsPanel({
                         {item.label}
                         {item.hasScript ? (
                             <span
-                                className="bg-primary absolute top-1/2 right-2 size-1.5 -translate-y-1/2 rounded-full"
+                                className="bg-primary absolute top-1/2 right-[0.4rem] size-1.5 -translate-y-1/2 rounded-full"
                                 aria-hidden
                             />
                         ) : null}

@@ -1,5 +1,6 @@
 mod commands;
 use commands::http::send_request;
+use commands::updates::{check_desktop_update, install_desktop_update};
 use commands::ws::{ws_connect, ws_disconnect, ws_send, ws_send_ping, WsState};
 use std::sync::Arc;
 
@@ -12,6 +13,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(ws_state);
     #[cfg(desktop)]
     {
@@ -25,6 +28,8 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             send_request,
+            check_desktop_update,
+            install_desktop_update,
             ws_connect,
             ws_send,
             ws_send_ping,
@@ -50,20 +55,8 @@ pub fn run() {
                     }
                 }
 
-                #[cfg(target_os = "macos")]
-                {
-                    let win = window.clone();
-                    window.on_window_event(move |event| {
-                        match event {
-                            tauri::WindowEvent::Resized(_)
-                            | tauri::WindowEvent::ThemeChanged(_)
-                            | tauri::WindowEvent::Focused(true) => {
-                                let _ = win.set_title_bar_style(tauri::TitleBarStyle::Overlay);
-                            }
-                            _ => {}
-                        }
-                    });
-                }
+                // Overlay title bar is set once in tauri.macos.conf.json.
+                // Reapplying it on focus reloads the page when the person switches back to ZReq.
             }
 
             #[cfg(any(target_os = "linux", target_os = "windows"))]

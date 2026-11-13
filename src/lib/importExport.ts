@@ -5,6 +5,7 @@ import type {
     HttpMethod,
     KV,
     RequestBody,
+    RequestCheck,
     SavedResponse,
 } from '../types'
 import { nanoid } from 'nanoid'
@@ -510,14 +511,30 @@ function importPostmanBody(req: any): RequestBody {
     }
 
     if (mode === 'formdata') {
-        const pairs = (b.formdata || [])
-            .filter((f: any) => f.type !== 'file')
-            .map((f: any) => ({
+        const rows = Array.isArray(b.formdata) ? b.formdata : Array.isArray(b.formData) ? b.formData : []
+        const pairs = rows.flatMap((f: any) => {
+            const isFile = f?.type === 'file' || (f?.src != null && f?.type !== 'text')
+            const key = f?.key ?? ''
+            if (!isFile && !String(key).trim()) return []
+            if (isFile) {
+                const fileName = postmanFileName(f?.src)
+                return [{
+                    id: nanoid(),
+                    key,
+                    value: '',
+                    enabled: !f?.disabled,
+                    valueType: 'file',
+                    ...(fileName ? { fileName } : {}),
+                }]
+            }
+            return [{
                 id: nanoid(),
-                key: f.key ?? '',
-                value: f.value ?? '',
-                enabled: typeof f.enabled === 'boolean' ? f.enabled : f.disabled !== true,
-            }))
+                key,
+                value: f?.value ?? '',
+                enabled: typeof f?.enabled === 'boolean' ? f.enabled : f?.disabled !== true,
+                valueType: 'text',
+            }]
+        })
         if (pairs.length === 0) return { type: 'none', content: '' }
         return { type: 'form-data', content: JSON.stringify(pairs) }
     }
@@ -750,7 +767,7 @@ function parseCollectionObject(data: unknown, format: ImportFormat): ImportedCol
 
     if (format === 'postman') {
         if (!isPostmanCollection(row)) return null
-        return { name: row.info.name, items: importPostmanItems(row.item) }
+        return { name: row.info.name, items: importPostmanItems(row.item, postmanListenScripts(row.event)) }
     }
 
     if (row.zreq && row.collection) {
@@ -830,19 +847,120 @@ function reassignIds(items: any[]): any[] {
     }))
 }
 
-function importPostmanItems(items: any[]): any[] {
+function postmanFileName(src: unknown): string {
+    const path = Array.isArray(src) ? src.find((part) => typeof part === 'string' && part.trim()) : src
+    if (typeof path !== 'string' || !path.trim()) return ''
+    return path.split(/[/\\]/).pop() || ''
+}
+
+function postmanExecText(script: unknown): string {
+    if (typeof script === 'string') return script
+    if (!script || typeof script !== 'object') return ''
+    const exec = (script as { exec?: unknown }).exec
+    if (typeof exec === 'string') return exec
+    if (Array.isArray(exec)) return exec.filter((line): line is string => typeof line === 'string').join('\n')
+    return ''
+}
+
+type PostmanScripts = { pre: string; post: string }
+
+function postmanListenScripts(events: unknown): PostmanScripts {
+    const pre: string[] = []
+    const post: string[] = []
+    if (!Array.isArray(events)) return { pre: '', post: '' }
+    for (const event of events) {
+        if (!event || typeof event !== 'object') continue
+        const listen = String((event as { listen?: unknown }).listen ?? '').toLowerCase()
+        const text = postmanExecText((event as { script?: unknown }).script).trim()
+        if (!text) continue
+        if (listen === 'prerequest') pre.push(text)
+        else if (listen === 'test') post.push(text)
+    }
+    return { pre: pre.join('\n\n'), post: post.join('\n\n') }
+}
+
+function joinPostmanScripts(parent: string, own: string): string {
+    return [parent.trim(), own.trim()].filter(Boolean).join('\n\n')
+}
+
+function postmanLiteral(raw: string): string | null {
+    const text = raw.trim()
+    if (text === 'true' || text === 'false') return text
+    if (/^-?\d+(?:\.\d+)?$/.test(text)) return text
+    if (text.startsWith('"') && text.endsWith('"')) {
+        try {
+            const parsed = JSON.parse(text)
+            return typeof parsed === 'string' ? parsed : null
+        } catch {
+            return null
+        }
+    }
+    if (text.startsWith("'") && text.endsWith("'") && text.length >= 2) {
+        return text.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, '\\')
+    }
+    return null
+}
+
+/** Pull simple status and JSON assertions out of a Postman test script. */
+function postmanChecks(script: string): RequestCheck[] {
+    const checks: RequestCheck[] = []
+    const seen = new Set<string>()
+    const addStatus = (expected: number) => {
+        const key = `status:${expected}`
+        if (seen.has(key)) return
+        seen.add(key)
+        checks.push({ id: nanoid(), kind: 'status', expected })
+    }
+    const addJson = (path: string, expected: string) => {
+        const key = `json:${path}=${expected}`
+        if (seen.has(key)) return
+        seen.add(key)
+        checks.push({ id: nanoid(), kind: 'json', path, expected })
+    }
+
+    const statusCall = /pm\.response\.to\.have\.status\(\s*(\d{3})\s*\)/g
+    for (const match of script.matchAll(statusCall)) {
+        addStatus(Number(match[1]))
+    }
+    const statusExpect = /pm\.expect\(\s*pm\.response\.code\s*\)\s*\.to\.(?:eql|equal|eq)\(\s*(\d{3})\s*\)/g
+    for (const match of script.matchAll(statusExpect)) {
+        addStatus(Number(match[1]))
+    }
+
+    const jsonExpect = /pm\.expect\(\s*(?:jsonData|pm\.response\.json\(\))\s*((?:\.[A-Za-z_$][\w$]*|\[\d+\])+)\)\s*\.to\.(?:eql|equal|eq)\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|-?\d+(?:\.\d+)?|true|false)\s*\)/g
+    for (const match of script.matchAll(jsonExpect)) {
+        const expected = postmanLiteral(match[2])
+        if (expected == null) continue
+        const path = match[1].replace(/^\./, '')
+        if (!path) continue
+        addJson(path, expected)
+    }
+    return checks
+}
+
+function importPostmanItems(items: any[], inherited: PostmanScripts = { pre: '', post: '' }): any[] {
     return items.map((item) => {
+        const own = postmanListenScripts(item.event)
+        const scripts = {
+            pre: joinPostmanScripts(inherited.pre, own.pre),
+            post: joinPostmanScripts(inherited.post, own.post),
+        }
         if (item.item) {
             return {
                 id: nanoid(),
                 type: 'folder',
                 name: item.name ?? 'Folder',
-                items: importPostmanItems(item.item),
+                items: importPostmanItems(item.item, scripts),
             }
         }
         const req = normalizePostmanRequest(item)
         const fields = buildPostmanRequestFields(req)
-        const scripts = importPostmanScripts(item)
+        const checks = postmanChecks(scripts.post)
+        const requestScripts = {
+            ...(scripts.pre ? { preRequest: scripts.pre } : {}),
+            ...(scripts.post ? { postResponse: scripts.post } : {}),
+            ...(checks.length > 0 ? { checks } : {}),
+        }
         const requestSnapshot: SavedResponse['requestSnapshot'] = {
             method: (fields.method as HttpMethod) || 'GET',
             url: fields.url,
@@ -863,7 +981,7 @@ function importPostmanItems(items: any[]): any[] {
             params: fields.params,
             body: fields.body,
             auth: fields.auth,
-            ...(scripts ? { scripts } : {}),
+            ...(Object.keys(requestScripts).length > 0 ? { scripts: requestScripts } : {}),
             ...(savedResponses ? { savedResponses } : {}),
         }
     })

@@ -18,6 +18,10 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Updater signing secret. The public key lives in src-tauri/tauri.conf.json.
+src-tauri/updater.key
+src-tauri/.updater-password
+
 # TypeScript / tooling
 *.tsbuildinfo
 .cache

@@ -223,6 +223,29 @@ function applyApiKeyAuth(
 
 import { splitUrlQuery } from './query-params'
 
+/** Turn the editor's URL-encoded rows into the body that is actually sent. */
+export function encodeUrlEncodedContent(content: string, vars: Record<string, string>): string {
+    const raw = content.trim()
+    if (!raw) return ''
+    try {
+        const rows = JSON.parse(raw) as unknown
+        if (Array.isArray(rows)) {
+            return rows
+                .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+                .filter((row) => row.enabled !== false && String(row.key ?? '').length > 0)
+                .map((row) => {
+                    const key = encodeURIComponent(resolveEnvVars(String(row.key ?? ''), vars))
+                    const value = encodeURIComponent(resolveEnvVars(String(row.value ?? ''), vars))
+                    return `${key}=${value}`
+                })
+                .join('&')
+        }
+    } catch {
+        /* already a raw form string */
+    }
+    return resolveEnvVars(content, vars)
+}
+
 export function resolveRequest(req: ActiveRequest, vars: Record<string, string>) {
     const { baseUrl } = splitUrlQuery(req.url || '')
     let url = resolveEnvVars(baseUrl, vars)
@@ -286,24 +309,11 @@ export function resolveRequest(req: ActiveRequest, vars: Record<string, string>)
         body = resolveEnvVars(req.body.content, vars)
     } else if (bodyType === 'urlencoded') {
         if (req.body?.content) {
-            try {
-                const rows = JSON.parse(req.body.content) as unknown
-                if (Array.isArray(rows)) {
-                    const resolvedRows = rows
-                        .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-                        .map((row) => ({
-                            ...row,
-                            key: resolveEnvVars(String(row.key ?? ''), vars),
-                            value: resolveEnvVars(String(row.value ?? ''), vars),
-                        }))
-                    body = JSON.stringify(resolvedRows)
-                } else {
-                    body = resolveEnvVars(req.body.content, vars)
-                }
-            } catch {
-                body = resolveEnvVars(req.body.content, vars)
+            const encoded = encodeUrlEncodedContent(req.body.content, vars)
+            if (encoded) {
+                body = encoded
+                if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded'
             }
-            if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded'
         }
     } else if (bodyType === 'form-data') {
         if (req.body?.content) {

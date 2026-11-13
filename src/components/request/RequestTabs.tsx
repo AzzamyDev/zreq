@@ -6,6 +6,7 @@ import KVEditor from './KVEditor'
 import AuthEditor from './AuthEditor'
 import BodyEditor from './BodyEditor'
 import ScriptsPanel from './ScriptsPanel'
+import ChecksPanel from './ChecksPanel'
 import WsMessageComposer from './WsMessageComposer'
 import WsSavedMessages from './WsSavedMessages'
 import type { KV, AuthConfig, RequestBody } from '../../types'
@@ -25,8 +26,9 @@ function TabDot({ show }: { show: boolean }) {
     )
 }
 
+const TAB_LIST_CLASS = 'h-[1.6rem] w-fit items-end justify-start gap-[0.2rem] rounded-none px-[0.6rem]'
 const TAB_TRIGGER_CLASS =
-    'min-w-[120px] border-transparent px-3 pb-2.5 pt-1 data-active:border-transparent data-active:bg-transparent data-active:after:-bottom-px data-active:after:h-0.5 data-active:after:bg-primary dark:data-active:border-transparent dark:data-active:bg-transparent'
+    'min-w-24 border-transparent px-[0.6rem] pb-2 pt-[0.2rem] text-[0.7rem] data-active:border-transparent data-active:bg-transparent data-active:after:-bottom-px data-active:after:h-0.5 data-active:after:bg-primary dark:data-active:border-transparent dark:data-active:bg-transparent'
 
 interface RequestTabsProps {
     onWsSend: (data: string, isBinary: boolean) => void
@@ -37,7 +39,7 @@ interface RequestTabsProps {
 export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: RequestTabsProps) {
     const { t } = useTranslation()
     const [activeTab, setActiveTab] = useState<string>('params')
-    const { activeRequest, setActiveRequest } = useAppStore()
+    const { activeRequest, setActiveRequest, response } = useAppStore()
     const protocol = activeRequest.protocol ?? 'http'
     const isWs = protocol === 'ws'
 
@@ -56,6 +58,7 @@ export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: Request
     const scriptsCount = [activeRequest.scripts?.preRequest, activeRequest.scripts?.postResponse].filter(
         (s) => !!s?.trim()
     ).length
+    const checksCount = activeRequest.scripts?.checks?.length ?? 0
     const savedCount = activeRequest.savedMessages?.length ?? 0
     const messageActive = activeRequest.messageTemplate?.trim() ? 1 : 0
 
@@ -67,7 +70,7 @@ export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: Request
                 className="flex h-full min-h-0 flex-col"
             >
                 <div className="w-full border-b border-border">
-                    <TabsList variant="line" className="w-fit items-end justify-start gap-1 rounded-none px-3">
+                    <TabsList variant="line" className={TAB_LIST_CLASS}>
                         <TabsTrigger
                             className={`${TAB_TRIGGER_CLASS} data-active:after:bg-[var(--dracula-cyan)]/50`}
                             value="headers"
@@ -153,7 +156,7 @@ export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: Request
             className="flex h-full min-h-0 flex-col"
         >
             <div className='border-b border-border w-full'>
-                <TabsList variant="line" className="w-fit items-end justify-start gap-1 rounded-none px-3">
+                <TabsList variant="line" className={TAB_LIST_CLASS}>
                     <TabsTrigger
                         id="request-tab-params"
                         className={TAB_TRIGGER_CLASS}
@@ -177,6 +180,10 @@ export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: Request
                     <TabsTrigger className={TAB_TRIGGER_CLASS} value="scripts">
                         {t('request.scripts')}
                         <TabDot show={scriptsCount > 0} />
+                    </TabsTrigger>
+                    <TabsTrigger className={TAB_TRIGGER_CLASS} value="tests">
+                        {t('request.tests')}
+                        <TabDot show={checksCount > 0} />
                     </TabsTrigger>
                 </TabsList>
             </div>
@@ -225,6 +232,13 @@ export default function RequestTabs({ onWsSend, onWsPing, wsConnected }: Request
                     onPostChange={(v) =>
                         setActiveRequest({ scripts: { ...activeRequest.scripts, postResponse: v } })
                     }
+                />
+            </TabsContent>
+            <TabsContent value="tests" className="min-h-0 flex-1 overflow-hidden">
+                <ChecksPanel
+                    checks={activeRequest.scripts?.checks}
+                    response={response}
+                    onChange={(checks) => setActiveRequest({ scripts: { ...activeRequest.scripts, checks } })}
                 />
             </TabsContent>
         </Tabs>

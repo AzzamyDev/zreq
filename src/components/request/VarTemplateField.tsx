@@ -572,24 +572,7 @@ function VarTemplateField({
         if (!input) return
         const start = input.selectionStart ?? 0
         const end = input.selectionEnd ?? 0
-        if (start === end) {
-            setVarPopover(null)
-            return
-        }
-        setTemplateSuggest(null)
-        const selection = input.value.slice(start, end)
-        if (!selection.trim()) return
-        const rect = input.getBoundingClientRect()
-        setVarPopover({
-            x: rect.left + 8,
-            y: rect.bottom + 4,
-            selection,
-            start: textInputIndexToFlatOffset(inputIndex, start),
-            end: textInputIndexToFlatOffset(inputIndex, end),
-            inputIndex,
-        })
-        setVarName(selection.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+|_+$/g, ''))
-        setTimeout(() => varInputRef.current?.focus(), 50)
+        if (start === end) setVarPopover(null)
     }
 
     const handleExtractVar = async () => {

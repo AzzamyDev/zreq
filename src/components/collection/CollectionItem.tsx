@@ -22,6 +22,7 @@ import RenameDialog from './RenameDialog'
 import SaveRequestDialog from './SaveRequestDialog'
 import CollectionSettingsDialog from './CollectionSettingsDialog'
 import NewFolderDialog from './NewFolderDialog'
+import { collectHttpRequests } from '@/lib/request-checks'
 import TreeNode from './TreeNode'
 import type { Collection } from '../../types'
 import { flattenVisibleTreeItemIds } from '../../lib/collection-tree-select'
@@ -94,6 +95,7 @@ export default function CollectionItem({ collection, forceExpand = false, dragDi
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [targetFolderId, setTargetFolderId] = useState<string | undefined>(undefined)
     const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+    const openRunnerTab = useAppStore((state) => state.openRunnerTab)
     const [addMenuOpen, setAddMenuOpen] = useState(false)
     const [folderDialogOpen, setFolderDialogOpen] = useState(false)
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
@@ -362,6 +364,17 @@ export default function CollectionItem({ collection, forceExpand = false, dragDi
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setMoreMenuOpen(false)
+                                                openRunnerTab(`${collection.id}:root`, collection.name, collectHttpRequests(collection.items, collection.id))
+                                            }}
+                                        >
+                                            {t('collection.runCollection')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={SIDEBAR_MORE_MENU_ITEM}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setMoreMenuOpen(false)
                                                 expandAllFolders(e)
                                             }}
                                         >
@@ -472,6 +485,13 @@ export default function CollectionItem({ collection, forceExpand = false, dragDi
                             </button>
                 </CollectionHeaderDropZone>
                 <ContextMenuContent>
+                    <ContextMenuItem
+                        onClick={() =>
+                            openRunnerTab(`${collection.id}:root`, collection.name, collectHttpRequests(collection.items, collection.id))
+                        }
+                    >
+                        {t('collection.runCollection')}
+                    </ContextMenuItem>
                     <ContextMenuItem onClick={() => { setTargetFolderId(undefined); setSaveRequestOpen(true) }}>
                         {t('collection.addRequest')}
                     </ContextMenuItem>

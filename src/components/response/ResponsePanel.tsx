@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 import { nanoid } from 'nanoid'
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { evaluateChecks, readChecks } from '@/lib/request-checks'
 import { useAppStore } from '../../store'
 import { useCollection } from '../../hooks/useCollection'
 import { Button } from '../ui/button'
@@ -15,6 +16,26 @@ import SavedResponses from './SavedResponses'
 import ConsolePanel from './ConsolePanel'
 import WsMessagePanel from './WsMessagePanel'
 import WsConnectionStats from './WsConnectionStats'
+
+function CheckSummary({
+    response,
+    checks,
+}: {
+    response: NonNullable<ReturnType<typeof useAppStore.getState>['response']>
+    checks: ReturnType<typeof readChecks> | undefined
+}) {
+    const { t } = useTranslation()
+    const rows = readChecks(checks)
+    if (!response || rows.length === 0) return null
+    const verdicts = evaluateChecks(rows, response)
+    const failed = verdicts.filter((row) => !row.pass).length
+    const passed = verdicts.length - failed
+    return (
+        <span className={failed > 0 ? 'shrink-0 pr-2 text-xs text-destructive' : 'shrink-0 pr-2 text-xs text-green-600'}>
+            {t('request.testsSummary', { passed, failed })}
+        </span>
+    )
+}
 
 function Spinner() {
     return (
@@ -112,10 +133,13 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                         {t('response.loading')}
                     </div>
                 ) : response ? (
-                    <ResponseStats
-                        response={response}
-                        className="min-w-0 flex-1 border-0 bg-transparent py-2 pl-3 pr-0"
-                    />
+                    <>
+                        <ResponseStats
+                            response={response}
+                            className="min-w-0 flex-1 border-0 bg-transparent py-2 pl-3 pr-0"
+                        />
+                        <CheckSummary response={response} checks={activeRequest.scripts?.checks} />
+                    </>
                 ) : (
                     <span className="px-3 py-2 text-xs font-medium text-muted-foreground">
                         {t('response.title')}
@@ -148,11 +172,11 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                         className="flex min-h-0 flex-1 flex-col overflow-hidden"
                     >
                         <div className="w-full border-b border-border">
-                            <TabsList variant="line" className="w-fit justify-start rounded-none px-3">
-                                <TabsTrigger className="w-[120px]" value="body">
+                            <TabsList variant="line" className="h-[1.6rem] w-fit justify-start gap-[0.2rem] rounded-none px-[0.6rem]">
+                                <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="body">
                                     {t('websocket.frames')}
                                 </TabsTrigger>
-                                <TabsTrigger className="w-[120px]" value="console">
+                                <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="console">
                                     {t('response.console')}
                                     {consoleLogs.length > 0 && (
                                         <span className="ml-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
@@ -191,17 +215,17 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                     className="flex min-h-0 flex-1 flex-col overflow-hidden"
                 >
                     <div className="w-full border-b border-border">
-                        <TabsList variant="line" className="w-fit justify-start rounded-none px-3">
-                            <TabsTrigger className="w-[120px]" value="body">
+                        <TabsList variant="line" className="h-[1.6rem] w-fit justify-start gap-[0.2rem] rounded-none px-[0.6rem]">
+                            <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="body">
                                 {t('response.body')}
                             </TabsTrigger>
-                            <TabsTrigger className="w-[120px]" value="headers">
+                            <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="headers">
                                 {t('response.headers')}
                             </TabsTrigger>
-                            <TabsTrigger className="w-[120px]" value="cookies">
+                            <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="cookies">
                                 {t('response.cookies')}
                             </TabsTrigger>
-                            <TabsTrigger className="w-[120px]" value="console">
+                            <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="console">
                                 {t('response.console')}
                                 {consoleLogs.length > 0 && (
                                     <span className="ml-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
@@ -209,7 +233,7 @@ export default function ResponsePanel({ responsePanelRef }: ResponsePanelProps) 
                                     </span>
                                 )}
                             </TabsTrigger>
-                            <TabsTrigger className="w-[120px]" value="saved">
+                            <TabsTrigger className="w-24 px-[0.3rem] py-[0.1rem] text-[0.7rem]" value="saved">
                                 {t('response.savedResponses')}
                                 {savedResponses.length > 0 && (
                                     <span className="ml-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">

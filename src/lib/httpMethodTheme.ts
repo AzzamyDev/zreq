@@ -9,6 +9,7 @@ export const METHOD_TEXT_CLASS: Record<string, string> = {
     HEAD: 'text-[var(--muted-foreground)]',
     OPTIONS: 'text-[var(--muted-foreground)]',
     WS: 'text-[var(--dracula-cyan)]',
+    RUN: 'text-primary',
 }
 
 /** CSS color values for inline styles (beat menu focus:text overrides). */

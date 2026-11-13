@@ -231,12 +231,11 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
         }
     }, [open, selectedId, currentVarsSig, commitPersistedVarsSig])
 
-    // Auto-select first env when dialog opens
+    // Open on the environment that is actually in use, not the first in the list.
+    const pickedOnOpen = useRef(false)
     useEffect(() => {
-        if (open && environments.length > 0 && selectedId === null) {
-            setSelectedId(environments[0].id)
-        }
         if (!open) {
+            pickedOnOpen.current = false
             setSelectedId(null)
             setIsCreating(false)
             setNewEnvName('')
@@ -245,8 +244,13 @@ export default function EnvironmentManagerDialog({ open, onClose }: EnvironmentM
             setIsImporting(false)
             clearSaveNoticeTimer()
             setSaveNotice(null)
+            return
         }
-    }, [open, environments])
+        if (pickedOnOpen.current || environments.length === 0) return
+        const active = environments.find((env) => env.id === activeEnvironmentId)
+        setSelectedId((active ?? environments[0]).id)
+        pickedOnOpen.current = true
+    }, [open, environments, activeEnvironmentId])
 
     useEffect(
         () => () => {

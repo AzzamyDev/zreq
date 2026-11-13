@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, memo, type CSSProperties } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, memo, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
 import {
@@ -139,6 +139,7 @@ const SortableFormRow = memo(function SortableFormRow({
         <div
             ref={setNodeRef}
             style={style}
+            data-kv-row={pair.id}
             className={cn(
                 'group col-span-6 grid grid-cols-subgrid border-b border-border/50 transition-colors hover:bg-muted/15',
                 TABLE_GRID,
@@ -166,6 +167,13 @@ const SortableFormRow = memo(function SortableFormRow({
                     type="text"
                     value={pair.key}
                     onChange={e => onUpdate(pair.id, { key: e.target.value })}
+                    onKeyDown={e => {
+                        if (e.key !== 'Tab' || e.shiftKey) return
+                        const valueInput = e.currentTarget.closest('[data-kv-row]')?.querySelector<HTMLInputElement>('[data-kv-value] input:not([type="file"])')
+                        if (!valueInput) return
+                        e.preventDefault()
+                        valueInput.focus()
+                    }}
                     placeholder={keyPlaceholder}
                     className="w-full bg-transparent px-0 py-0 font-mono text-xs leading-normal focus:outline-none"
                 />
@@ -193,7 +201,7 @@ const SortableFormRow = memo(function SortableFormRow({
                     <option value="file">{t('request.formDataTypeFile')}</option>
                 </select>
             </div>
-            <div className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
+            <div data-kv-value="" className="flex min-w-0 items-center border-r border-border/40 px-2.5 py-1.5">
                 {valueType === 'file' ? (
                     <div className="flex min-w-0 items-center gap-2">
                         <label className="inline-flex shrink-0 cursor-pointer items-center rounded-sm border border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground">
@@ -248,6 +256,13 @@ export default function FormDataEditor({
     const [draftKey, setDraftKey] = useState('')
     const [draftValue, setDraftValue] = useState('')
     const [draftType, setDraftType] = useState<FormDataValueType>('text')
+    const draftKeyRef = useRef(draftKey)
+    const draftValueRef = useRef(draftValue)
+    const draftTypeRef = useRef(draftType)
+    draftKeyRef.current = draftKey
+    draftValueRef.current = draftValue
+    draftTypeRef.current = draftType
+    const pendingValueFocus = useRef<string | null>(null)
     const [uploadingRowId, setUploadingRowId] = useState<string | null>(null)
     const selectAllRef = useRef<HTMLInputElement>(null)
 
@@ -322,27 +337,47 @@ export default function FormDataEditor({
         onChange(pairs.map(p => ({ ...p, enabled: enable })))
     }
 
-    const commitDraft = useCallback(() => {
-        if (!draftKey.trim()) return
+    const commitDraft = useCallback((focusValue = false) => {
+        const key = draftKeyRef.current
+        if (!key.trim()) return
+        const id = nanoid()
         onChangeRef.current([
             ...pairsRef.current,
             {
-                id: nanoid(),
-                key: draftKey,
-                value: draftValue,
+                id,
+                key,
+                value: draftValueRef.current,
                 enabled: true,
-                valueType: draftType,
+                valueType: draftTypeRef.current,
             },
         ])
+        draftKeyRef.current = ''
+        draftValueRef.current = ''
         setDraftKey('')
         setDraftValue('')
         setDraftType('text')
-    }, [draftKey, draftValue, draftType])
+        if (focusValue === true && draftTypeRef.current !== 'file') pendingValueFocus.current = id
+    }, [])
+
+    useLayoutEffect(() => {
+        const id = pendingValueFocus.current
+        if (!id) return
+        const input = document.querySelector<HTMLInputElement>(`[data-kv-row="${globalThis.CSS.escape(id)}"] [data-kv-value] input:not([type="file"])`)
+        if (!input) return
+        pendingValueFocus.current = null
+        input.focus()
+    })
 
     const handleDraftKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
+        if (e.key === 'Tab' && !e.shiftKey) {
+            if (!draftKeyRef.current.trim()) return
             e.preventDefault()
-            commitDraft()
+            commitDraft(true)
+            return
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault()
+            commitDraft(true)
         }
     }
 
@@ -417,7 +452,7 @@ export default function FormDataEditor({
                                     type="text"
                                     value={draftKey}
                                     onChange={e => setDraftKey(e.target.value)}
-                                    onBlur={commitDraft}
+                                    onBlur={() => commitDraft()}
                                     onKeyDown={handleDraftKeyDown}
                                     placeholder={kp}
                                     className="w-full bg-transparent px-0 py-0 font-mono text-xs leading-normal focus:outline-none"
@@ -441,11 +476,11 @@ export default function FormDataEditor({
                                         wrap
                                         value={draftValue}
                                         onChange={setDraftValue}
-                                        onBlur={commitDraft}
+                                        onBlur={() => commitDraft()}
                                         inputOnKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === 'Tab') {
+                                            if ((e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) && draftKeyRef.current.trim()) {
                                                 e.preventDefault()
-                                                commitDraft()
+                                                commitDraft(false)
                                             }
                                         }}
                                         className="w-full px-0 py-0"

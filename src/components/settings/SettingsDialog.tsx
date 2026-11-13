@@ -32,6 +32,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import appPkg from '../../../package.json'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
+import DesktopUpdateSection from './DesktopUpdateSection'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -899,6 +900,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                                     </span>
                                 </div>
                             </div>
+                            <DesktopUpdateSection />
                         </div>
                     )}
         </SidebarDialog>

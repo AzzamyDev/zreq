@@ -40,6 +40,10 @@ export type RequestBody = {
     content: string
 }
 
+export type RequestCheck =
+    | { id: string; kind: 'status'; expected: number }
+    | { id: string; kind: 'json'; path: string; expected: string }
+
 export type AuthConfig =
     /** `overrideParent: true` = user explicitly chose "No Auth" under a folder (blocks folder/collection auth). */
     | { type: 'none'; overrideParent?: boolean }
@@ -81,6 +85,7 @@ export type RequestItem = {
     scripts?: {
         preRequest?: string
         postResponse?: string
+        checks?: RequestCheck[]
     }
 }
 
@@ -189,6 +194,7 @@ export type ActiveRequest = {
     scripts?: {
         preRequest?: string
         postResponse?: string
+        checks?: RequestCheck[]
     }
 }
 
@@ -198,6 +204,45 @@ export type ConsoleEntry = {
     level: 'log' | 'warn' | 'error' | 'info'
     source: 'script' | 'request' | 'response'
     message: string
+}
+
+export type RunnerStep = {
+    id: string
+    role: 'prepare' | 'target'
+    selected: boolean
+    request: ActiveRequest
+}
+
+export type RunnerResult = {
+    id: string
+    name: string
+    method: string
+    role: 'prepare' | 'target'
+    iteration: number
+    status: number
+    durationMs: number
+    state: 'pass' | 'fail' | 'sent'
+    /** When the response arrived, used to draw the run chart. */
+    at: number
+    /** The call did not complete, or the server answered with status 400 or higher. */
+    error: boolean
+    failedChecks: number
+}
+
+export type RunnerSession = {
+    sourceKey: string
+    phase: 'configure' | 'run'
+    steps: RunnerStep[]
+    /** Functional checks each request once. Performance holds virtual users for a duration. */
+    runKind: 'functional' | 'performance'
+    /** How the number of virtual users changes during a performance run. */
+    loadProfile: 'fixed' | 'ramp' | 'spike' | 'peak'
+    virtualUsers: number
+    durationMin: number
+    results: RunnerResult[]
+    running: boolean
+    startedAt: number | null
+    endsAt: number | null
 }
 
 export type RequestTab = {
@@ -212,4 +257,6 @@ export type RequestTab = {
     wsFrames: WsFrame[]
     wsHandshake: WsHandshake | null
     wsConnectedAt: number | null
+    kind?: 'request' | 'runner'
+    runner?: RunnerSession
 }

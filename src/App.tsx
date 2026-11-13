@@ -27,6 +27,7 @@ import {
     SYNC_PREFS_CHANGED,
 } from '@/lib/sync-preferences'
 import AppFooter from '@/components/layout/AppFooter'
+import DesktopUpdatePrompt from '@/components/layout/DesktopUpdatePrompt'
 import ConflictDialog from '@/components/sync/ConflictDialog'
 
 const SIDEBAR_LAYOUT_KEY = 'zreq_sidebar_layout'
@@ -238,18 +239,21 @@ export default function App() {
         }
     }, [])
 
-    if (!instanceOnboardingComplete) {
-        return (
-            <div className="flex h-full min-h-0 flex-col">
-                <InstanceOnboarding />
-            </div>
-        )
-    }
-    return isAuthenticated ? (
+    const screen = !instanceOnboardingComplete ? (
+        <div className="flex h-full min-h-0 flex-col">
+            <InstanceOnboarding />
+        </div>
+    ) : isAuthenticated ? (
         <AppShell />
     ) : (
         <div className="flex h-full min-h-0 flex-col">
             <AuthPage />
         </div>
+    )
+    return (
+        <>
+            {screen}
+            <DesktopUpdatePrompt />
+        </>
     )
 }

@@ -8,6 +8,7 @@ import {
     Globe,
     GripVertical,
     Plus,
+    Play,
     MoreHorizontal,
     Radio,
     FileText,
@@ -30,6 +31,7 @@ import { useCollectionFlatVisibleIds } from './CollectionSelectionContext'
 import RenameDialog from './RenameDialog'
 import NewFolderDialog from './NewFolderDialog'
 import FolderSettingsDialog from './FolderSettingsDialog'
+import { collectHttpRequests } from '@/lib/request-checks'
 import type { RequestItem, Folder as FolderType, SavedResponse } from '../../types'
 import { getStatusColor } from '../response/ResponseStats'
 import { METHOD_BG_CLASS, METHOD_TEXT_CLASS, requestBadgeLabel } from '../../lib/httpMethodTheme'
@@ -215,6 +217,7 @@ function FolderTreeNode({
     const [addMenuOpen, setAddMenuOpen] = useState(false)
     const [folderDialogOpen, setFolderDialogOpen] = useState(false)
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+    const openRunnerTab = useAppStore((state) => state.openRunnerTab)
     const moreMenuRef = useRef<HTMLDivElement>(null)
     const addMenuRef = useRef<HTMLDivElement>(null)
     const { deleteItem, renameItem, duplicateItem, addFolder, addRequest, addWebSocketRequest, updateFolderSettings } = useCollection()
@@ -356,6 +359,19 @@ function FolderTreeNode({
                         <div
                             className={`flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 ${moreMenuOpen || addMenuOpen || isDragging ? 'pointer-events-auto opacity-100' : ''}`}
                         >
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setMoreMenuOpen(false)
+                                    setAddMenuOpen(false)
+                                    openRunnerTab(`${collectionId}:${folder.id}`, folder.name, collectHttpRequests(folder.items, collectionId, folder.id))
+                                }}
+                                className="cursor-pointer rounded p-0.5 hover:bg-[var(--sidebar-row-hover)]"
+                                title={t('collection.runFolder')}
+                            >
+                                <Play className="h-3.5 w-3.5" />
+                            </button>
                             <div className="relative" ref={addMenuRef}>
                                 <button
                                     onClick={(e) => {
@@ -403,6 +419,15 @@ function FolderTreeNode({
                                 </button>
                                 {moreMenuOpen && (
                                     <InlineMenu>
+                                        <MenuButton
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setMoreMenuOpen(false)
+                                                openRunnerTab(`${collectionId}:${folder.id}`, folder.name, collectHttpRequests(folder.items, collectionId, folder.id))
+                                            }}
+                                        >
+                                            {t('collection.runFolder')}
+                                        </MenuButton>
                                         <MenuButton
                                             onClick={(e) => {
                                                 e.stopPropagation()
@@ -502,6 +527,13 @@ function FolderTreeNode({
                     </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
+                    <ContextMenuItem
+                        onClick={() =>
+                            openRunnerTab(`${collectionId}:${folder.id}`, folder.name, collectHttpRequests(folder.items, collectionId, folder.id))
+                        }
+                    >
+                        {t('collection.runFolder')}
+                    </ContextMenuItem>
                     <ContextMenuItem onClick={() => onAddRequest?.(folder.id)}>{t('collection.addRequest')}</ContextMenuItem>
                     <ContextMenuItem onClick={() => onAddWebSocketRequest?.(folder.id)}>{t('collection.addWebSocketRequest')}</ContextMenuItem>
                     <ContextMenuItem onClick={handleAddSubFolder}>{t('collection.addFolder')}</ContextMenuItem>

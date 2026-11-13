@@ -4,9 +4,22 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/componen
 import RequestBuilder from '../request/RequestBuilder'
 import ResponsePanel from '../response/ResponsePanel'
 import RequestTabBar from './RequestTabBar'
+import RunnerWorkspace from '../collection/RunnerWorkspace'
+import { useAppStore } from '@/store'
 
 export default function MainPanel() {
     const responsePanelRef = useRef<PanelImperativeHandle>(null)
+    const activeTabId = useAppStore((state) => state.activeTabId)
+    const runnerTab = useAppStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId && tab.kind === 'runner'))
+
+    if (runnerTab && activeTabId) {
+        return (
+            <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
+                <RequestTabBar />
+                <RunnerWorkspace tabId={activeTabId} />
+            </div>
+        )
+    }
 
     return (
         <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">

@@ -20,6 +20,8 @@
       "identifier": "fs:allow-write-text-file",
       "allow": [{ "path": "**" }]
     },
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:default"
   ]
 }

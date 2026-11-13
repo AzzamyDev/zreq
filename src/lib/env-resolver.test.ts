@@ -111,6 +111,27 @@ describe('getVariableSource for mocks', () => {
     })
 })
 
+describe('resolveRequest urlencoded body', () => {
+    it('sends enabled rows as a form string and resolves variables', () => {
+        const req: ActiveRequest = {
+            ...baseRequest(),
+            method: 'POST',
+            body: {
+                type: 'urlencoded',
+                content: JSON.stringify([
+                    { id: 'a', key: 'name', value: '{{user}}', enabled: true },
+                    { id: 'b', key: 'skip', value: 'no', enabled: false },
+                    { id: 'c', key: 'city', value: 'New York', enabled: true },
+                ]),
+            },
+        }
+        const resolved = resolveRequest(req, { user: 'Ada' })
+        expect(resolved.body).toBe('name=Ada&city=New%20York')
+        expect(resolved.body_type).toBe('urlencoded')
+        expect(resolved.headers['Content-Type']).toBe('application/x-www-form-urlencoded')
+    })
+})
+
 describe('resolveRequest apikey auth', () => {
     it('adds API key to headers when addTo is header', () => {
         const req: ActiveRequest = {
@@ -178,8 +199,6 @@ describe('resolveRequest urlencoded body', () => {
         const resolved = resolveRequest(req, { keyName: 'api_key', token: 'secret' })
         expect(resolved.body_type).toBe('urlencoded')
         expect(resolved.headers['Content-Type']).toBe('application/x-www-form-urlencoded')
-        const out = JSON.parse(resolved.body!)
-        expect(out[0]).toMatchObject({ key: 'api_key', value: 'secret' })
-        expect(out[1]).toMatchObject({ key: 'plain', value: 'keep' })
+        expect(resolved.body).toBe('api_key=secret&plain=keep')
     })
 })

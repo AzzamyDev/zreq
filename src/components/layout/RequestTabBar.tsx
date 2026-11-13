@@ -294,6 +294,7 @@ export default function RequestTabBar() {
                                 <ContextMenuShortcut>{mod}T</ContextMenuShortcut>
                             </ContextMenuItem>
                             <ContextMenuItem
+                                disabled={tab.kind === 'runner'}
                                 onClick={() => {
                                     duplicateTab(tab.id)
                                 }}

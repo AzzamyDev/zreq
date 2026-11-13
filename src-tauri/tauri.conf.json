@@ -29,10 +29,18 @@
       "desktop": {
         "schemes": ["zreq"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5QjYwQTY1NDRFOUQ5QQpSV1NhblU1VXBtQ2JEWEkrNG1Na0FOQU0yUU5Fb3ZSMS8ySitwSm9KNUNjWEpaaWZ0SDNEcU9JYQo=",
+      "endpoints": [
+        "http://127.0.0.1:3500/desktop-updates/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "dangerousInsecureTransportProtocol": true
     }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",

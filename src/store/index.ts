@@ -12,6 +12,7 @@ import type {
     ActiveRequest,
     ConsoleEntry,
     RequestTab,
+    RunnerSession,
     Workspace,
     WsConnectionState,
     WsFrame,
@@ -24,6 +25,7 @@ import { normalizeKvList } from '../lib/kv'
 import { inferProtocolFromUrl } from '../lib/persist-request'
 import { refreshTabsFromPulledCollections } from '../lib/sync-refresh-tabs'
 import { rangeSelectIds, type SidebarSelection } from '../lib/collection-tree-select'
+import { stopRunner } from '../lib/runner-run'
 
 const ENV_MAP_KEY = 'zreq_environment_by_workspace'
 const LEGACY_ENV_ID_KEY = 'zreq_environment_id'
@@ -243,6 +245,8 @@ interface AppState {
     tabs: RequestTab[]
     activeTabId: string | null
     addTab: (item?: Partial<ActiveRequest>) => void
+    openRunnerTab: (sourceKey: string, name: string, requests: ActiveRequest[]) => void
+    patchRunner: (id: string, patch: (runner: RunnerSession) => void) => void
     /** @param force when true, discard unsaved. Returns false if dirty and not forced (UI should prompt). */
     closeTab: (id: string, force?: boolean) => boolean
     duplicateTab: (id: string) => void
@@ -460,7 +464,7 @@ export const useAppStore = create<AppState>()(
                     item ? { ...defaultRequest, ...item } : { ...defaultRequest },
                 )
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
-                if (cur) {
+                if (cur && cur.kind !== 'runner') {
                     cur.request = { ...s.activeRequest }
                     cur.response = cloneHttpResponse(s.response)
                 }
@@ -471,10 +475,57 @@ export const useAppStore = create<AppState>()(
                 s.isLoading = false
             }),
 
+        openRunnerTab: (sourceKey, name, requests) =>
+            set((s) => {
+                const current = s.tabs.find((tab) => tab.id === s.activeTabId)
+                if (current && current.kind !== 'runner') {
+                    current.request = { ...s.activeRequest }
+                    current.response = cloneHttpResponse(s.response)
+                }
+                const existing = s.tabs.find((tab) => tab.kind === 'runner' && tab.runner?.sourceKey === sourceKey)
+                if (existing) {
+                    s.activeTabId = existing.id
+                    return
+                }
+                const id = nanoid()
+                const tab = createRequestTab(id, { ...defaultRequest, name })
+                tab.name = name
+                tab.method = 'RUN'
+                tab.kind = 'runner'
+                tab.isDirty = false
+                tab.runner = {
+                    sourceKey,
+                    phase: 'configure',
+                    steps: requests.map((request) => ({
+                        id: request.itemId || nanoid(),
+                        role: 'target',
+                        selected: true,
+                        request,
+                    })),
+                    runKind: 'functional',
+                    loadProfile: 'fixed',
+                    virtualUsers: 5,
+                    durationMin: 1,
+                    results: [],
+                    running: false,
+                    startedAt: null,
+                    endsAt: null,
+                }
+                s.tabs.push(tab)
+                s.activeTabId = id
+            }),
+
+        patchRunner: (id, patch) =>
+            set((s) => {
+                const tab = s.tabs.find((item) => item.id === id)
+                if (tab?.runner) patch(tab.runner)
+            }),
+
         closeTab: (id, force = false) => {
             const tab = get().tabs.find((t) => t.id === id)
             if (!tab) return false
             if (tab.isDirty && !force) return false
+            if (tab.kind === 'runner') stopRunner(id)
             if (
                 (tab.request.protocol ?? 'http') === 'ws' &&
                 (tab.wsState === 'connected' || tab.wsState === 'connecting')
@@ -495,8 +546,10 @@ export const useAppStore = create<AppState>()(
                 if (s.activeTabId === id) {
                     const next = s.tabs[s.tabs.length - 1]
                     s.activeTabId = next.id
-                    s.activeRequest = withNormalizedQuery({ ...next.request })
-                    s.response = cloneHttpResponse(next.response)
+                    if (next.kind !== 'runner') {
+                        s.activeRequest = withNormalizedQuery({ ...next.request })
+                        s.response = cloneHttpResponse(next.response)
+                    }
                 }
             })
             return true
@@ -505,9 +558,9 @@ export const useAppStore = create<AppState>()(
         duplicateTab: (id) =>
             set((s) => {
                 const src = s.tabs.find((t) => t.id === id)
-                if (!src) return
+                if (!src || src.kind === 'runner') return
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
-                if (cur) {
+                if (cur && cur.kind !== 'runner') {
                     cur.request = { ...s.activeRequest }
                     cur.response = cloneHttpResponse(s.response)
                 }
@@ -535,6 +588,7 @@ export const useAppStore = create<AppState>()(
             if (toClose.length === 0) return true
             if (!force && toClose.some((t) => t.isDirty)) return false
             for (const tab of toClose) {
+                if (tab.kind === 'runner') stopRunner(tab.id)
                 if (
                     (tab.request.protocol ?? 'http') === 'ws' &&
                     (tab.wsState === 'connected' || tab.wsState === 'connecting')
@@ -544,7 +598,7 @@ export const useAppStore = create<AppState>()(
             }
             set((s) => {
                 const cur = s.tabs.find((t) => t.id === s.activeTabId)
-                if (cur) {
+                if (cur && cur.kind !== 'runner') {
                     cur.request = { ...s.activeRequest }
                     cur.response = cloneHttpResponse(s.response)
                 }
@@ -552,9 +606,11 @@ export const useAppStore = create<AppState>()(
                 if (!kept) return
                 s.tabs = [kept]
                 s.activeTabId = keepId
-                s.activeRequest = withNormalizedQuery({ ...kept.request })
-                s.response = cloneHttpResponse(kept.response)
                 s.isLoading = false
+                if (kept.kind !== 'runner') {
+                    s.activeRequest = withNormalizedQuery({ ...kept.request })
+                    s.response = cloneHttpResponse(kept.response)
+                }
             })
             return true
         },
@@ -564,6 +620,7 @@ export const useAppStore = create<AppState>()(
             if (tabs.length === 0) return true
             if (!force && tabs.some((t) => t.isDirty)) return false
             for (const tab of tabs) {
+                if (tab.kind === 'runner') stopRunner(tab.id)
                 if (
                     (tab.request.protocol ?? 'http') === 'ws' &&
                     (tab.wsState === 'connected' || tab.wsState === 'connecting')
@@ -588,11 +645,12 @@ export const useAppStore = create<AppState>()(
                 const tab = s.tabs.find((t) => t.id === id)
                 if (!tab) return
                 const currentTab = s.tabs.find((t) => t.id === s.activeTabId)
-                if (currentTab) {
+                if (currentTab && currentTab.kind !== 'runner') {
                     currentTab.request = { ...s.activeRequest }
                     currentTab.response = cloneHttpResponse(s.response)
                 }
                 s.activeTabId = id
+                if (tab.kind === 'runner') return
                 const normalized = withNormalizedQuery({ ...tab.request })
                 tab.request = normalized
                 s.activeRequest = { ...normalized }

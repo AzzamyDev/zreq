@@ -7,8 +7,10 @@ import WsUrlBar from './WsUrlBar'
 import type { HttpMethod } from '../../types'
 import VarTemplateField from './VarTemplateField'
 import { composeUrl, parseUrlToParams } from '../../lib/query-params'
-import { SendHorizonal } from 'lucide-react'
+import { ClipboardPaste, Code2, SendHorizonal } from 'lucide-react'
 import type { WsConnectionState } from '../../types'
+import CodeSnippetDialog from './CodeSnippetDialog'
+import CurlImportDialog from './CurlImportDialog'
 
 interface UrlBarProps {
     onSend: () => void
@@ -27,6 +29,8 @@ export default function UrlBar({ onSend, onWsConnect, onWsDisconnect, isLoading,
         [activeRequest.url, activeRequest.params],
     )
     const [draftUrl, setDraftUrl] = useState<string | null>(null)
+    const [codeOpen, setCodeOpen] = useState(false)
+    const [curlOpen, setCurlOpen] = useState(false)
 
     useEffect(() => {
         setDraftUrl(null)
@@ -95,6 +99,24 @@ export default function UrlBar({ onSend, onWsConnect, onWsDisconnect, isLoading,
                     </div>
 
                     <button
+                        type="button"
+                        onClick={() => setCodeOpen(true)}
+                        title={t('request.codeTitle')}
+                        aria-label={t('request.codeTitle')}
+                        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-input text-muted-foreground hover:text-foreground"
+                    >
+                        <Code2 className="size-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setCurlOpen(true)}
+                        title={t('request.importCurlTitle')}
+                        aria-label={t('request.importCurlTitle')}
+                        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-input text-muted-foreground hover:text-foreground"
+                    >
+                        <ClipboardPaste className="size-4" />
+                    </button>
+                    <button
                         onClick={onSend}
                         disabled={isLoading}
                         className="flex h-9 min-w-[72px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
@@ -132,6 +154,8 @@ export default function UrlBar({ onSend, onWsConnect, onWsDisconnect, isLoading,
                     </button>
                 </>
             )}
+            <CodeSnippetDialog open={codeOpen} onClose={() => setCodeOpen(false)} />
+            <CurlImportDialog open={curlOpen} onClose={() => setCurlOpen(false)} />
         </div>
     )
 }

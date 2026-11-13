@@ -421,4 +421,87 @@ describe('importCollections postman', () => {
         expect(noauth.auth).toEqual({ type: 'none' })
         expect(unknown.auth).toEqual({ type: 'inherit' })
     })
+
+    it('keeps folder scripts, tests, and form-data file rows', () => {
+        const collection = {
+            info: { name: 'Shop', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+            event: [
+                {
+                    listen: 'prerequest',
+                    script: { exec: ['pm.environment.set("fromCollection", "1");'] },
+                },
+            ],
+            item: [
+                {
+                    name: 'Auth',
+                    event: [
+                        {
+                            listen: 'test',
+                            script: { exec: ['pm.response.to.have.status(200);'] },
+                        },
+                    ],
+                    item: [
+                        {
+                            name: 'Upload',
+                            event: [
+                                {
+                                    listen: 'prerequest',
+                                    script: { type: 'text/javascript', exec: ['console.log("req");'] },
+                                },
+                                {
+                                    listen: 'test',
+                                    script: {
+                                        exec: [
+                                            'const jsonData = pm.response.json();',
+                                            'pm.test("name", function () {',
+                                            '    pm.expect(jsonData.user.name).to.eql("Ada");',
+                                            '    pm.expect(pm.response.json().items[0].ok).to.equal(true);',
+                                            '    pm.expect(pm.response.code).to.eql(201);',
+                                            '});',
+                                        ],
+                                    },
+                                },
+                            ],
+                            request: {
+                                method: 'POST',
+                                url: 'https://example.com/upload',
+                                header: [],
+                                body: {
+                                    mode: 'formdata',
+                                    formdata: [
+                                        { key: 'note', value: 'hello', type: 'text' },
+                                        { key: 'photo', type: 'file', src: '/Users/me/Pictures/ada.png' },
+                                        { key: '', value: 'skip', type: 'text' },
+                                        { key: 'extra', type: 'file', src: ['C:\\tmp\\b.txt'], disabled: true },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+        const result = importCollections(JSON.stringify(collection), 'postman')
+        const folder = result[0].items[0]
+        if (folder.type !== 'folder') throw new Error('expected folder')
+        const req = folder.items[0]
+        if (req.type !== 'request') throw new Error('expected request')
+        expect(req.scripts?.preRequest).toBe('pm.environment.set("fromCollection", "1");\n\nconsole.log("req");')
+        expect(req.scripts?.postResponse).toContain('pm.response.to.have.status(200);')
+        expect(req.scripts?.postResponse).toContain('pm.expect(jsonData.user.name).to.eql("Ada");')
+        const checks = req.scripts?.checks ?? []
+        expect(checks.map((check) => (check.kind === 'status' ? check.expected : `${check.path}=${check.expected}`))).toEqual([
+            200,
+            201,
+            'user.name=Ada',
+            'items[0].ok=true',
+        ])
+        expect(req.body.type).toBe('form-data')
+        const pairs = JSON.parse(req.body.content)
+        expect(pairs).toEqual([
+            expect.objectContaining({ key: 'note', value: 'hello', valueType: 'text', enabled: true }),
+            expect.objectContaining({ key: 'photo', value: '', valueType: 'file', fileName: 'ada.png', enabled: true }),
+            expect.objectContaining({ key: 'extra', valueType: 'file', fileName: 'b.txt', enabled: false }),
+        ])
+    })
 })
