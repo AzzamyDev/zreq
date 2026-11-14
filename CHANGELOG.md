@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/AzzamyDev/zreq/compare/v1.5.0...v1.5.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* sign updater artifacts in release workflow ([dfc0883](https://github.com/AzzamyDev/zreq/commit/dfc0883554248fc21b2074a435d5a2d205f20508))
+
 ## [1.5.0](https://github.com/AzzamyDev/zreq/compare/zreq-v1.4.3...zreq-v1.5.0) (2026-11-13)
 
 
